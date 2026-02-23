@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  daemon:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: dark-gene-daemon:latest
+    container_name: dark-gene-daemon
+    restart: unless-stopped
+    
+    volumes:
+      # 파이프라인 디렉토리 마운트
+      - ../fastq:/pipeline/fastq:ro
+      - ../analysis:/pipeline/analysis:ro
+      - ../output:/pipeline/output:ro
+      - ../log:/pipeline/log:ro
+      
+      # Daemon 상태 저장
+      - daemon-state:/var/lib/daemon
+      - daemon-logs:/var/log
+    
+    environment:
+      # Portal 설정
+      - PORTAL_URL=${PORTAL_URL:-https://portal.genolyx.com}
+      - PORTAL_API_KEY=${PORTAL_API_KEY}
+      - INSTITUTION_ID=${INSTITUTION_ID:-genolyx}
+      
+      # 파이프라인 경로
+      - PIPELINE_BASE_DIR=/pipeline
+    
+    ports:
+      - "8080:8080"
+    
+    networks:
+      - pipeline-network
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  daemon-state:
+    driver: local
+  daemon-logs:
+    driver: local
+
+networks:
+  pipeline-network:
+    driver: bridge

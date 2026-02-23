@@ -1,0 +1,925 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dark Gene Pipeline</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inconsolata:wght@400;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-dark: #0f1115;
+            --bg-panel: #161b22;
+            --border: #30363d;
+            --accent: #2ea043;
+            --accent-hover: #3fb950;
+            --text-primary: #f0f6fc;
+            --text-secondary: #8b949e;
+            --danger: #cf222e;
+            --warning: #d29922;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-dark);
+            color: var(--text-primary);
+            margin: 0;
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: 260px;
+            background-color: var(--bg-panel);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            padding: 24px;
+        }
+
+        .brand {
+            font-size: 20px;
+            font-weight: 700;
+            margin-bottom: 40px;
+        }
+
+        .brand span { color: var(--accent); }
+
+        .nav-link {
+            padding: 12px 16px;
+            color: var(--text-secondary);
+            text-decoration: none;
+            border-radius: 6px;
+            margin-bottom: 4px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .nav-link:hover, .nav-link.active {
+            background-color: rgba(171, 196, 255, 0.05);
+            color: var(--text-primary);
+        }
+
+        .nav-link.active { border-left: 3px solid var(--accent); }
+
+        /* Main Content */
+        .main {
+            flex: 1;
+            padding: 32px 40px;
+            overflow-y: auto;
+        }
+
+        h1 { font-size: 24px; margin-bottom: 8px; }
+        .subtitle { color: var(--text-secondary); margin-bottom: 32px; }
+
+        /* Status Badge */
+        .status-badge {
+            display: inline-block;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-left: 12px;
+        }
+
+        .status-idle { background: var(--border); color: var(--text-secondary); }
+        .status-running { background: var(--warning); color: #000; }
+        .status-success { background: var(--accent); color: #000; }
+        .status-failed { background: var(--danger); color: #fff; }
+
+        /* Panel */
+        .panel {
+            background: var(--bg-panel);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 24px;
+            margin-bottom: 24px;
+        }
+
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .panel-title { font-size: 16px; font-weight: 600; }
+
+        /* Table */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th, td {
+            text-align: left;
+            padding: 12px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        th {
+            color: var(--text-secondary);
+            font-weight: 500;
+            font-size: 12px;
+            text-transform: uppercase;
+        }
+
+        tr:hover { background: rgba(171, 196, 255, 0.02); }
+
+        /* Buttons */
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            color: #000;
+        }
+
+        .btn-primary:hover { background: var(--accent-hover); }
+
+        .btn-secondary {
+            background: var(--border);
+            color: var(--text-primary);
+        }
+
+        .btn-secondary:hover { background: #3d444d; }
+
+        .btn-danger {
+            background: var(--danger);
+            color: #fff;
+        }
+
+        .btn-danger:hover { background: #a11729; }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* Checkbox */
+        input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+
+        /* Toggle */
+        .toggle-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+
+        .toggle {
+            position: relative;
+            display: inline-block;
+            width: 44px;
+            height: 24px;
+        }
+
+        .toggle input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: var(--border);
+            transition: 0.3s;
+            border-radius: 24px;
+        }
+
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: 0.3s;
+            border-radius: 50%;
+        }
+
+        .toggle input:checked + .toggle-slider {
+            background-color: var(--accent);
+        }
+
+        .toggle input:checked + .toggle-slider:before {
+            transform: translateX(20px);
+        }
+
+        /* Progress Bar */
+        .progress-container {
+            width: 100%;
+            height: 8px;
+            background: var(--border);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .progress-bar {
+            height: 100%;
+            background: var(--accent);
+            transition: width 0.3s;
+        }
+
+        /* Hidden sections */
+        .hidden { display: none; }
+
+        /* Badge */
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .badge-completed { background: var(--accent); color: #000; }
+        .badge-incomplete { background: var(--warning); color: #000; }
+        .badge-error { background: var(--danger); color: #fff; }
+
+        /* File upload */
+        #upload-area {
+            border: 2px dashed var(--border);
+            border-radius: 8px;
+            padding: 40px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        #upload-area:hover {
+            border-color: var(--accent);
+            background: rgba(46, 160, 67, 0.05);
+        }
+    </style>
+</head>
+<body>
+    <!-- Sidebar -->
+    <div class="sidebar">
+        <div class="brand">Dark Gene <span>Pipeline</span></div>
+        <a class="nav-link active" onclick="showSection('samples', event)">📁 Samples</a>
+        <a class="nav-link" onclick="showSection('upload', event)">⬆️ Upload</a>
+        <a class="nav-link" onclick="showSection('results', event)">📊 Results</a>
+        <a class="nav-link" onclick="showSection('monitor', event)">⚙️ Monitor</a>
+    </div>
+
+    <!-- Main Content -->
+    <div class="main">
+        <!-- Samples Section -->
+        <div id="section-samples">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <h1>Sample Management</h1>
+                    <p class="subtitle">Select samples to analyze</p>
+                </div>
+                <div>
+                    <span class="status-badge status-{{ status.lower() }}" id="global-status">{{ status }}</span>
+                </div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-header">
+                    <div class="panel-title">Available Samples</div>
+                    <div>
+                        <div class="toggle-container">
+                            <label for="show-completed">Show Completed</label>
+                            <label class="toggle">
+                                <input type="checkbox" id="show-completed" onchange="toggleCompleted()">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Select</th>
+                            <th>Work Dir</th>
+                            <th>Sample Name</th>
+                            <th>Status</th>
+                            <th>R1/R2 Pair</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="sample-list">
+                        {% for sample in samples %}
+                        <tr>
+                            <td><input type="radio" name="selected-sample" value="{{ sample.work_dir }}/{{ sample.sample_name }}" data-workdir="{{ sample.work_dir }}" data-sample="{{ sample.sample_name }}"></td>
+                            <td>{{ sample.work_dir }}</td>
+                            <td><strong>{{ sample.sample_name }}</strong></td>
+                            <td>
+                                {% if sample.is_completed %}
+                                <span class="badge badge-completed">✓ Completed</span>
+                                {% else %}
+                                <span class="badge badge-incomplete">Pending</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if sample.has_r1r2 %}
+                                <span style="color: var(--accent);">✓ Valid Pair</span>
+                                {% else %}
+                                <span class="badge badge-error">✗ Missing Pair</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <button class="btn btn-primary btn-sm" onclick="startSingleAnalysis('{{ sample.work_dir }}', '{{ sample.sample_name }}')">Analyze</button>
+                                {% if sample.is_completed %}
+                                <button class="btn btn-secondary btn-sm" onclick="viewReport('{{ sample.work_dir }}', '{{ sample.sample_name }}')">📊 Report</button>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+
+                <div style="margin-top: 20px; display: flex; gap: 12px;">
+                    <button class="btn btn-primary" onclick="startSelectedAnalysis()">Start Selected</button>
+                    <button class="btn btn-danger" onclick="stopAnalysis()">Stop Pipeline</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Upload Section -->
+        <div id="section-upload" class="hidden">
+            <h1>Upload FASTQ Files</h1>
+            <p class="subtitle">Upload paired-end sequencing data</p>
+
+            <div class="panel">
+                <div class="panel-header">
+                    <div class="panel-title">Upload Configuration</div>
+                </div>
+
+                <div style="margin-bottom: 20px;">
+                    <label>Work Directory (YYMM format):</label><br>
+                    <input type="text" id="upload-workdir" placeholder="e.g., 2601" style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-dark); color: var(--text-primary); width: 200px;">
+                </div>
+
+                <div style="margin-bottom: 20px;">
+                    <label>Sample Name:</label><br>
+                    <input type="text" id="upload-sample" placeholder="e.g., Sample_A10" style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-dark); color: var(--text-primary); width: 300px;">
+                </div>
+
+                <div id="upload-area" onclick="document.getElementById('file-input').click()">
+                    <input type="file" id="file-input" multiple accept=".fq.gz,.fastq.gz,.fq,.fastq" style="display: none;" onchange="handleFileSelect(event)">
+                    <p style="font-size: 18px; margin-bottom: 8px;">📁 Drop FASTQ files here or click to browse</p>
+                    <p style="color: var(--text-secondary); font-size: 14px;">Accepted: .fq.gz, .fastq.gz, .fq, .fastq</p>
+                </div>
+
+                <div id="file-list" style="margin-top: 20px;"></div>
+
+                <button class="btn btn-primary" onclick="uploadFiles()" style="margin-top: 20px;">Upload Files</button>
+            </div>
+        </div>
+
+        <!-- Results Section -->
+        <div id="section-results" class="hidden">
+            <h1>Analysis Results</h1>
+            <p class="subtitle">Download reports and visualizations</p>
+
+            <div id="results-container">
+                <!-- Results will be loaded dynamically -->
+            </div>
+        </div>
+
+        <!-- Monitor Section -->
+        <div id="section-monitor" class="hidden">
+            <h1>Pipeline Monitor</h1>
+            <p class="subtitle">Real-time analysis progress</p>
+
+            <div class="panel">
+                <div class="panel-header">
+                    <div class="panel-title">Current Analysis</div>
+                    <span class="status-badge" id="monitor-status">IDLE</span>
+                </div>
+
+                <div id="current-sample" style="margin-bottom: 20px; font-size: 14px; color: var(--text-secondary);">
+                    No active analysis
+                </div>
+
+                <div id="progress-container" class="hidden">
+                    <div style="margin-bottom: 8px; display: flex; justify-content: space-between;">
+                        <span>Progress</span>
+                        <span id="progress-percent">0%</span>
+                    </div>
+                    <div class="progress-container">
+                        <div class="progress-bar" id="progress-bar" style="width: 0%;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sample Log Selector -->
+            <div class="panel">
+                <div class="panel-header">
+                    <div class="panel-title">Sample Logs</div>
+                    <div>
+                        <select id="log-sample-selector" onchange="loadSelectedSampleLog()" style="padding: 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-dark); color: var(--text-primary);">
+                            <option value="">Select sample...</option>
+                        </select>
+                        <button class="btn btn-sm" onclick="refreshLogList()" style="margin-left: 8px;">🔄 Refresh</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-header">
+                    <div class="panel-title">Log Output</div>
+                    <button class="btn btn-sm" onclick="toggleAutoScroll()" id="autoscroll-btn">📌 Auto-scroll: ON</button>
+                </div>
+                <pre id="log-output" style="background: var(--bg-dark); padding: 16px; border-radius: 6px; max-height: 400px; overflow-y: auto; font-family: 'Inconsolata', monospace; font-size: 12px;">Waiting for analysis to start...</pre>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let selectedFiles = [];
+        let statusInterval = null;
+
+        // Section Navigation
+        function showSection(section, event) {
+            document.querySelectorAll('[id^="section-"]').forEach(el => el.classList.add('hidden'));
+            document.getElementById('section-' + section).classList.remove('hidden');
+
+            document.querySelectorAll('.nav-link').forEach(el => el.classList.remove('active'));
+            if (event && event.target) {
+                event.target.classList.add('active');
+            } else {
+                // If no event (called programmatically), find and activate the nav link
+                const navLink = document.querySelector(`[onclick*="'${section}'"]`);
+                if (navLink) navLink.classList.add('active');
+            }
+
+            
+            // Load results when Results section is shown
+            if (section === 'results') {
+                loadResults();
+            }
+            if (section === 'monitor') {
+                startStatusPolling();
+            } else {
+                stopStatusPolling();
+            }
+        }
+
+        // Toggle completed samples
+        function toggleCompleted() {
+            const showCompleted = document.getElementById('show-completed').checked;
+            fetch('/list_samples', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({show_completed: showCompleted})
+            })
+            .then(res => res.json())
+            .then(data => {
+                const tbody = document.getElementById('sample-list');
+                tbody.innerHTML = '';
+                data.samples.forEach(sample => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td><input type="radio" name="selected-sample" value="${sample.work_dir}/${sample.sample_name}" data-workdir="${sample.work_dir}" data-sample="${sample.sample_name}"></td>
+                        <td>${sample.work_dir}</td>
+                        <td><strong>${sample.sample_name}</strong></td>
+                        <td>${sample.is_completed ? '<span class="badge badge-completed">✓ Completed</span>' : '<span class="badge badge-incomplete">Pending</span>'}</td>
+                        <td>${sample.has_r1r2 ? '<span style="color: var(--accent);">✓ Valid Pair</span>' : '<span class="badge badge-error">✗ Missing Pair</span>'}</td>
+                        <td><button class="btn btn-primary btn-sm" onclick="startSingleAnalysis('${sample.work_dir}', '${sample.sample_name}')">Analyze</button></td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            });
+        }
+
+        // File Upload
+        function handleFileSelect(event) {
+            selectedFiles = Array.from(event.target.files);
+            updateFileList();
+        }
+
+        function updateFileList() {
+            const fileList = document.getElementById('file-list');
+            if (selectedFiles.length === 0) {
+                fileList.innerHTML = '';
+                return;
+            }
+
+            fileList.innerHTML = '<h3 style="font-size: 14px; margin-bottom: 10px;">Selected Files:</h3>';
+            selectedFiles.forEach((file, idx) => {
+                const fileItem = document.createElement('div');
+                fileItem.style.padding = '8px';
+                fileItem.style.background = 'var(--bg-panel)';
+                fileItem.style.marginBottom = '4px';
+                fileItem.style.borderRadius = '4px';
+                fileItem.innerHTML = `${idx + 1}. ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`;
+                fileList.appendChild(fileItem);
+            });
+        }
+
+        function uploadFiles() {
+            const workDir = document.getElementById('upload-workdir').value.trim();
+            const sampleName = document.getElementById('upload-sample').value.trim();
+
+            if (!workDir || !sampleName) {
+                alert('Please provide both work directory and sample name!');
+                return;
+            }
+
+            if (selectedFiles.length === 0) {
+                alert('Please select files to upload!');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('work_dir', workDir);
+            formData.append('sample_name', sampleName);
+            selectedFiles.forEach(file => formData.append('files[]', file));
+
+            fetch('/upload', {
+                method: 'POST',
+                body: formData
+            })
+            .then(res => res.json())
+            .then(data => {
+                alert(data.message || 'Upload successful!');
+                selectedFiles = [];
+                updateFileList();
+                document.getElementById('file-input').value = '';
+            })
+            .catch(err => alert('Upload failed: ' + err));
+        }
+
+        // Start Analysis
+        function startSelectedAnalysis() {
+            const selected = document.querySelector('input[name="selected-sample"]:checked');
+            if (!selected) {
+                alert('Please select a sample!');
+                return;
+            }
+
+            const workDir = selected.dataset.workdir;
+            const sampleName = selected.dataset.sample;
+            startSingleAnalysis(workDir, sampleName);
+        }
+
+        function startSingleAnalysis(workDir, sampleName) {
+            fetch('/start', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({work_dir: workDir, sample_name: sampleName})
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.error) {
+                    alert('Error: ' + data.error);
+                } else {
+                    // Automatically switch to monitor tab without alert
+                    showSection('monitor');
+                    startStatusPolling();
+                }
+            })
+            .catch(err => alert('Failed to start: ' + err));
+        }
+
+        function viewReport(workDir, sampleName) {
+            window.open(`/view_report/${workDir}/${sampleName}`, '_blank');
+        }
+
+        function stopAnalysis() {
+            if (!confirm('Stop running pipeline?')) return;
+
+            fetch('/stop', {method: 'POST'})
+            .then(res => res.json())
+            .then(data => alert(data.message))
+            .catch(err => alert('Failed to stop: ' + err));
+        }
+
+        // Status Polling
+        let autoScroll = true;
+
+        function startStatusPolling() {
+            if (statusInterval) return;
+            statusInterval = setInterval(updateStatus, 3000);
+            updateStatus();
+            refreshLogList(); // 샘플 로그 목록 로드
+        }
+
+        function stopStatusPolling() {
+            if (statusInterval) {
+                clearInterval(statusInterval);
+                statusInterval = null;
+            }
+        }
+
+        function toggleAutoScroll() {
+            autoScroll = !autoScroll;
+            const btn = document.getElementById('autoscroll-btn');
+            btn.textContent = autoScroll ? '📌 Auto-scroll: ON' : '📌 Auto-scroll: OFF';
+        }
+
+        async function refreshLogList() {
+            try {
+                const response = await fetch('/api/logs/list');
+                const data = await response.json();
+                
+                const selector = document.getElementById('log-sample-selector');
+                const currentValue = selector.value;
+                
+                // 기존 옵션 제거 (첫 번째 "Select sample..." 제외)
+                while (selector.options.length > 1) {
+                    selector.remove(1);
+                }
+                
+                // 샘플 목록 추가
+                if (data.samples && data.samples.length > 0) {
+                    data.samples.forEach(sample => {
+                        const option = document.createElement('option');
+                        option.value = `${sample.work_dir}/${sample.sample_name}`;
+                        option.textContent = `${sample.work_dir}/${sample.sample_name}${sample.is_running ? ' (Running)' : ''}`;
+                        selector.appendChild(option);
+                    });
+                    
+                    // 이전 선택 유지 또는 현재 실행 중인 샘플 선택
+                    if (currentValue && Array.from(selector.options).some(opt => opt.value === currentValue)) {
+                        selector.value = currentValue;
+                    } else if (data.current_sample) {
+                        selector.value = `${data.current_sample.work_dir}/${data.current_sample.sample_name}`;
+                    }
+                    
+                    // 선택된 샘플의 로그 로드
+                    if (selector.value) {
+                        loadSelectedSampleLog();
+                    }
+                }
+            } catch (error) {
+                console.error('Failed to load log list:', error);
+            }
+        }
+
+        async function loadSelectedSampleLog() {
+            const selector = document.getElementById('log-sample-selector');
+            const selected = selector.value;
+            
+            if (!selected) {
+                document.getElementById('log-output').textContent = 'Select a sample to view logs...';
+                return;
+            }
+            
+            const [workDir, sampleName] = selected.split('/');
+            
+            try {
+                const response = await fetch(`/api/logs/${workDir}/${sampleName}`);
+                const data = await response.json();
+                
+                const logOutput = document.getElementById('log-output');
+                if (data.content) {
+                    logOutput.textContent = data.content;
+                    
+                    // Auto-scroll to bottom
+                    if (autoScroll) {
+                        logOutput.scrollTop = logOutput.scrollHeight;
+                    }
+                } else if (data.error) {
+                    logOutput.textContent = `Error: ${data.error}`;
+                } else {
+                    logOutput.textContent = 'No log data available';
+                }
+            } catch (error) {
+                document.getElementById('log-output').textContent = `Failed to load log: ${error.message}`;
+            }
+        }
+
+        function updateStatus() {
+            fetch('/status')
+            .then(res => res.json())
+            .then(data => {
+                // Update status badge
+                const statusEl = document.getElementById('monitor-status');
+                statusEl.textContent = data.status;
+                statusEl.className = 'status-badge status-' + data.status.toLowerCase();
+
+                // Update global status
+                const globalStatus = document.getElementById('global-status');
+                if (globalStatus) {
+                    globalStatus.textContent = data.status;
+                    globalStatus.className = 'status-badge status-' + data.status.toLowerCase();
+                }
+
+                // Update current sample
+                if (data.current && data.current.sample_name) {
+                    document.getElementById('current-sample').textContent = 
+                        `Analyzing: ${data.current.work_dir}/${data.current.sample_name}`;
+                    
+                    // 현재 실행 중인 샘플의 로그 자동 로드
+                    const selector = document.getElementById('log-sample-selector');
+                    const currentSample = `${data.current.work_dir}/${data.current.sample_name}`;
+                    if (selector.value === currentSample || selector.value === '') {
+                        selector.value = currentSample;
+                        loadSelectedSampleLog();
+                    }
+                } else {
+                    document.getElementById('current-sample').textContent = 'No active analysis';
+                }
+
+                // Update progress
+                if (data.samples && data.samples.length > 0) {
+                    document.getElementById('progress-container').classList.remove('hidden');
+                    const progress = data.samples[0].progress;
+                    document.getElementById('progress-bar').style.width = progress + '%';
+                    document.getElementById('progress-percent').textContent = progress + '%';
+                } else {
+                    document.getElementById('progress-container').classList.add('hidden');
+                }
+            });
+        }
+
+        // Download Result
+        // Download Result
+        function downloadFile(filepath) {
+            window.location.href = '/download/' + filepath;
+        }
+
+        // View file (for HTML, SVG, TXT)
+        function viewFile(filepath) {
+            window.open(`/download/${filepath}`, '_blank');
+        }
+
+        // Load Results
+        async function loadResults() {
+            try {
+                const response = await fetch('/api/results');
+                const results = await response.json();
+                
+                const container = document.getElementById('results-container');
+                container.innerHTML = '';
+                
+                if (Object.keys(results).length === 0) {
+                    container.innerHTML = '<div class="panel"><p style="text-align: center; padding: 40px;">No results available yet.</p></div>';
+                    return;
+                }
+                
+                for (const [sampleKey, sampleData] of Object.entries(results)) {
+                    const panel = document.createElement('div');
+                    panel.className = 'panel';
+                    panel.style.marginBottom = '24px';
+                    
+                    // Sample header with toggle button
+                    const header = document.createElement('div');
+                    header.className = 'panel-header';
+                    header.style.cursor = 'pointer';
+                    header.style.userSelect = 'none';
+                    
+                    const sampleContentId = `sample-content-${sampleKey.replace(/\//g, '-')}`;
+                    const sampleContent = document.createElement('div');
+                    sampleContent.id = sampleContentId;
+                    sampleContent.style.display = 'block'; // Default: expanded
+                    
+                    header.innerHTML = `
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span class="toggle-icon" style="font-size: 12px;">▼</span>
+                            <div class="panel-title">📊 ${sampleKey}</div>
+                        </div>
+                        <span class="badge badge-completed">${Object.keys(sampleData.categories).length} categories</span>
+                    `;
+                    
+                    // Toggle sample content
+                    header.onclick = () => {
+                        const content = document.getElementById(sampleContentId);
+                        const icon = header.querySelector('.toggle-icon');
+                        if (content.style.display === 'none') {
+                            content.style.display = 'block';
+                            icon.textContent = '▼';
+                        } else {
+                            content.style.display = 'none';
+                            icon.textContent = '▶';
+                        }
+                    };
+                    
+                    panel.appendChild(header);
+                    panel.appendChild(sampleContent);
+                    
+                    for (const [category, files] of Object.entries(sampleData.categories)) {
+                        const categoryDiv = document.createElement('div');
+                        categoryDiv.style.padding = '16px';
+                        categoryDiv.style.borderBottom = '1px solid var(--border)';
+                        
+                        // Category header with toggle
+                        const categoryHeader = document.createElement('div');
+                        categoryHeader.style.marginBottom = '12px';
+                        categoryHeader.style.fontWeight = '600';
+                        categoryHeader.style.color = 'var(--accent)';
+                        categoryHeader.style.cursor = 'pointer';
+                        categoryHeader.style.userSelect = 'none';
+                        categoryHeader.style.display = 'flex';
+                        categoryHeader.style.alignItems = 'center';
+                        categoryHeader.style.gap = '8px';
+                        
+                        const categoryContentId = `category-${sampleKey.replace(/\//g, '-')}-${category}`;
+                        const categoryContent = document.createElement('div');
+                        categoryContent.id = categoryContentId;
+                        categoryContent.style.display = 'block'; // Default: expanded
+                        
+                        categoryHeader.innerHTML = `
+                            <span class="category-toggle-icon" style="font-size: 10px;">▼</span>
+                            <span>📁 ${category.toUpperCase()} (${files.length} files)</span>
+                        `;
+                        
+                        // Toggle category content
+                        categoryHeader.onclick = () => {
+                            const content = document.getElementById(categoryContentId);
+                            const icon = categoryHeader.querySelector('.category-toggle-icon');
+                            if (content.style.display === 'none') {
+                                content.style.display = 'block';
+                                icon.textContent = '▼';
+                            } else {
+                                content.style.display = 'none';
+                                icon.textContent = '▶';
+                            }
+                        };
+                        
+                        categoryDiv.appendChild(categoryHeader);
+                        
+                        const filesList = document.createElement('div');
+                        filesList.style.marginLeft = '20px';
+                        filesList.id = categoryContentId;
+                        
+                        files.forEach(file => {
+                            const fileRow = document.createElement('div');
+                            fileRow.style.display = 'flex';
+                            fileRow.style.justifyContent = 'space-between';
+                            fileRow.style.alignItems = 'center';
+                            fileRow.style.padding = '8px 12px';
+                            fileRow.style.marginBottom = '4px';
+                            fileRow.style.background = 'var(--bg-dark)';
+                            fileRow.style.borderRadius = '4px';
+                            
+                            const fileInfo = document.createElement('div');
+                            fileInfo.style.flex = '1';
+                            fileInfo.innerHTML = `<div style="font-size: 14px; font-weight: 500;">${file.name}</div><div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;"><span class="badge badge-secondary" style="font-size: 10px;">${file.type}</span><span style="margin-left: 8px;">${file.size_mb} MB</span></div>`;
+                            
+                            const actions = document.createElement('div');
+                            actions.style.display = 'flex';
+                            actions.style.gap = '8px';
+                            
+                            if (file.viewable) {
+                                const viewBtn = document.createElement('button');
+                                viewBtn.className = 'btn btn-primary btn-sm';
+                                viewBtn.textContent = 'View';
+                                viewBtn.onclick = () => viewFile(file.path);
+                                actions.appendChild(viewBtn);
+                            }
+                            
+                            const downloadBtn = document.createElement('button');
+                            downloadBtn.className = 'btn btn-secondary btn-sm';
+                            downloadBtn.textContent = 'Download';
+                            downloadBtn.onclick = () => downloadFile(file.path);
+                            actions.appendChild(downloadBtn);
+                            
+                            fileRow.appendChild(fileInfo);
+                            fileRow.appendChild(actions);
+                            filesList.appendChild(fileRow);
+                        });
+                        
+                        categoryContent.appendChild(filesList);
+                        categoryDiv.appendChild(categoryContent);
+                        sampleContent.appendChild(categoryDiv);
+                    }
+                    
+                    container.appendChild(panel);
+                }
+            } catch (error) {
+                console.error('Error loading results:', error);
+                document.getElementById('results-container').innerHTML = '<div class="panel"><p style="color: var(--danger); text-align: center; padding: 40px;">Error loading results</p></div>';
+            }
+        }
+
+        // Initialize
+        window.onload = function() {
+            // Auto-refresh sample list every 10 seconds
+            setInterval(() => {
+                if (!document.getElementById('section-samples').classList.contains('hidden')) {
+                    toggleCompleted();
+                }
+            }, 10000);
+        };
+    </script>
+</body>
+</html>

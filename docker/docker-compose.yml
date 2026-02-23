@@ -1,0 +1,49 @@
+services:
+  dark-gene-pipeline:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: dark-gene-pipeline:latest
+    container_name: dark-gene-pipeline
+    ports:
+      - "5000:5000"  # Dashboard (using 5001 to avoid conflict)
+      - "8080:8080"  # Daemon API (using 8081 to avoid conflict)
+    volumes:
+      # Data directories (use absolute paths from project root)
+      - ${DATA_DIR:-../fastq}:/data/fastq
+      - ${DATA_DIR:-../analysis}:/data/analysis
+      - ${DATA_DIR:-../output}:/data/output
+      - ${DATA_DIR:-../log}:/data/log
+      # Reference data (read-only)
+      - ${REF_DIR:-../data/refs}:/app/references:ro
+      - ${BED_DIR:-../data/bed}:/app/bed:ro
+      - ${MODELS_DIR:-../models}:/app/models:ro
+    environment:
+      # Portal API Configuration
+      - PORTAL_API_URL=${PORTAL_API_URL:-https://portal.example.com/api}
+      - PORTAL_API_KEY=${PORTAL_API_KEY:-your_api_key_here}
+      - INSTITUTION_ID=${INSTITUTION_ID:-institution_id}
+      # Pipeline Configuration
+      - BASE_DIR=/data
+      - NXF_OPTS=-Xms1g -Xmx4g
+    env_file:
+      - ../.env
+    restart: unless-stopped
+    networks:
+      - pipeline-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+networks:
+  pipeline-network:
+    driver: bridge
+
+volumes:
+  fastq_data:
+  analysis_data:
+  output_data:
+  log_data:

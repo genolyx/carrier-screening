@@ -1,0 +1,14 @@
+name: base
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+    - flask==3.0.0
+    - requests==2.31.0
+    - schedule==1.2.0
+    - watchdog==3.0.0
+    - gunicorn==21.2.0

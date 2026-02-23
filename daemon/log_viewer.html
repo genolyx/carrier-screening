@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nextflow Log Viewer</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: 'Monaco', 'Courier New', monospace;
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            background: #252526;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border: 1px solid #3e3e42;
+        }
+        
+        h1 {
+            color: #4ec9b0;
+            margin-bottom: 10px;
+        }
+        
+        .info {
+            display: flex;
+            gap: 20px;
+            color: #858585;
+            font-size: 12px;
+        }
+        
+        .controls {
+            background: #252526;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            border: 1px solid #3e3e42;
+        }
+        
+        .btn {
+            background: #0e639c;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: background 0.2s;
+        }
+        
+        .btn:hover {
+            background: #1177bb;
+        }
+        
+        .btn-danger {
+            background: #a1260d;
+        }
+        
+        .btn-danger:hover {
+            background: #c72e0d;
+        }
+        
+        .btn-success {
+            background: #0e7d1e;
+        }
+        
+        .btn-success:hover {
+            background: #13a827;
+        }
+        
+        .status {
+            padding: 4px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        
+        .status-running {
+            background: #d7ba7d;
+            color: #1e1e1e;
+        }
+        
+        .status-success {
+            background: #4ec9b0;
+            color: #1e1e1e;
+        }
+        
+        .status-failed {
+            background: #f48771;
+            color: #1e1e1e;
+        }
+        
+        .log-container {
+            background: #1e1e1e;
+            border: 1px solid #3e3e42;
+            border-radius: 8px;
+            padding: 20px;
+            height: calc(100vh - 280px);
+            overflow-y: auto;
+            font-size: 13px;
+            line-height: 1.6;
+        }
+        
+        .log-line {
+            padding: 2px 0;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        
+        .log-line.error {
+            color: #f48771;
+        }
+        
+        .log-line.warning {
+            color: #d7ba7d;
+        }
+        
+        .log-line.success {
+            color: #4ec9b0;
+        }
+        
+        .log-line.info {
+            color: #569cd6;
+        }
+        
+        .search-box {
+            padding: 8px;
+            border: 1px solid #3e3e42;
+            background: #1e1e1e;
+            color: #d4d4d4;
+            border-radius: 4px;
+            flex: 1;
+            font-size: 13px;
+        }
+        
+        .auto-scroll {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            color: #858585;
+            font-size: 12px;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #858585;
+        }
+        
+        .highlight {
+            background: #d7ba7d;
+            color: #1e1e1e;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔍 Nextflow Log Viewer</h1>
+            <div class="info">
+                <span id="sample-info">Loading...</span>
+                <span id="file-size">Size: -</span>
+                <span id="last-modified">Modified: -</span>
+                <span id="line-count">Lines: 0</span>
+            </div>
+        </div>
+        
+        <div class="controls">
+            <button class="btn btn-success" id="btn-follow" onclick="toggleFollow()">
+                ▶ Start Following
+            </button>
+            <button class="btn" onclick="refreshLog()">🔄 Refresh</button>
+            <button class="btn" onclick="downloadLog()">⬇️ Download</button>
+            <button class="btn" onclick="clearLog()">🗑️ Clear View</button>
+            <input type="search" class="search-box" id="search-box" placeholder="Search in logs..." oninput="searchInLogs()">
+            <label class="auto-scroll">
+                <input type="checkbox" id="auto-scroll" checked> Auto-scroll
+            </label>
+            <select class="search-box" id="tail-lines" onchange="loadLog()" style="flex: 0; width: 150px;">
+                <option value="">All lines</option>
+                <option value="100">Last 100</option>
+                <option value="500" selected>Last 500</option>
+                <option value="1000">Last 1000</option>
+            </select>
+        </div>
+        
+        <div class="log-container" id="log-container">
+            <div class="loading">Loading logs...</div>
+        </div>
+    </div>
+    
+    <script>
+        // Configuration from URL params
+        const urlParams = new URLSearchParams(window.location.search);
+        const workDir = urlParams.get('work_dir');
+        const sampleName = urlParams.get('sample_name');
+        const daemonUrl = urlParams.get('daemon_url') || 'http://localhost:8080';
+        
+        let isFollowing = false;
+        let eventSource = null;
+        let currentLines = [];
+        
+        document.getElementById('sample-info').textContent = `${workDir}/${sampleName}`;
+        
+        function loadLog() {
+            const tailLines = document.getElementById('tail-lines').value;
+            const url = `${daemonUrl}/api/logs/${workDir}/${sampleName}${tailLines ? '?tail=' + tailLines : ''}`;
+            
+            fetch(url)
+                .then(res => res.json())
+                .then(data => {
+                    currentLines = data.content.split('\n');
+                    renderLog(currentLines);
+                    
+                    document.getElementById('line-count').textContent = `Lines: ${data.lines}`;
+                })
+                .catch(err => {
+                    console.error('Failed to load log:', err);
+                    document.getElementById('log-container').innerHTML = '<div class="loading">Error loading logs</div>';
+                });
+        }
+        
+        function renderLog(lines) {
+            const container = document.getElementById('log-container');
+            container.innerHTML = '';
+            
+            lines.forEach((line, idx) => {
+                if (!line.trim()) return;
+                
+                const div = document.createElement('div');
+                div.className = 'log-line';
+                div.textContent = line;
+                
+                // Syntax highlighting
+                if (line.toLowerCase().includes('error') || line.toLowerCase().includes('failed')) {
+                    div.classList.add('error');
+                } else if (line.toLowerCase().includes('warn')) {
+                    div.classList.add('warning');
+                } else if (line.toLowerCase().includes('success') || line.toLowerCase().includes('complete')) {
+                    div.classList.add('success');
+                } else if (line.includes('INFO') || line.includes('[')) {
+                    div.classList.add('info');
+                }
+                
+                container.appendChild(div);
+            });
+            
+            if (document.getElementById('auto-scroll').checked) {
+                container.scrollTop = container.scrollHeight;
+            }
+        }
+        
+        function toggleFollow() {
+            const btn = document.getElementById('btn-follow');
+            
+            if (isFollowing) {
+                // Stop following
+                if (eventSource) {
+                    eventSource.close();
+                    eventSource = null;
+                }
+                isFollowing = false;
+                btn.textContent = '▶ Start Following';
+                btn.classList.remove('btn-danger');
+                btn.classList.add('btn-success');
+            } else {
+                // Start following
+                const tailLines = document.getElementById('tail-lines').value || 100;
+                const url = `${daemonUrl}/api/logs/${workDir}/${sampleName}?follow=true&tail=${tailLines}`;
+                
+                eventSource = new EventSource(url);
+                
+                eventSource.onmessage = function(event) {
+                    const line = event.data;
+                    currentLines.push(line);
+                    
+                    // Keep only last N lines
+                    const maxLines = parseInt(tailLines) || 500;
+                    if (currentLines.length > maxLines) {
+                        currentLines.shift();
+                    }
+                    
+                    renderLog(currentLines);
+                };
+                
+                eventSource.onerror = function(err) {
+                    console.error('EventSource error:', err);
+                    eventSource.close();
+                    toggleFollow(); // Stop
+                };
+                
+                isFollowing = true;
+                btn.textContent = '⏸ Stop Following';
+                btn.classList.remove('btn-success');
+                btn.classList.add('btn-danger');
+            }
+        }
+        
+        function refreshLog() {
+            loadLog();
+        }
+        
+        function clearLog() {
+            document.getElementById('log-container').innerHTML = '<div class="loading">Cleared. Click Refresh to reload.</div>';
+            currentLines = [];
+        }
+        
+        function downloadLog() {
+            window.location.href = `${daemonUrl}/api/logs/${workDir}/${sampleName}/download`;
+        }
+        
+        function searchInLogs() {
+            const query = document.getElementById('search-box').value.toLowerCase();
+            const container = document.getElementById('log-container');
+            const lines = container.querySelectorAll('.log-line');
+            
+            lines.forEach(line => {
+                const text = line.textContent.toLowerCase();
+                if (query && text.includes(query)) {
+                    line.innerHTML = line.textContent.replace(
+                        new RegExp(query, 'gi'),
+                        match => `<span class="highlight">${match}</span>`
+                    );
+                } else {
+                    line.innerHTML = line.textContent;
+                }
+            });
+        }
+        
+        // Initial load
+        loadLog();
+        
+        // Auto-refresh every 5 seconds if not following
+        setInterval(() => {
+            if (!isFollowing) {
+                loadLog();
+            }
+        }, 5000);
+    </script>
+</body>
+</html>

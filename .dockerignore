@@ -1,0 +1,72 @@
+# Git
+.git
+.gitignore
+.github
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info
+dist
+build
+dashboard_venv/
+dashboard_env/
+venv/
+env/
+
+# Data directories (should be mounted as volumes, not copied)
+fastq/
+fastq_old/
+analysis/
+output/
+log/
+data/
+
+# Nextflow
+work/
+.nextflow/
+.nextflow.*
+*.log.*
+results/
+final_archived_results/
+active_run/
+nextflow
+
+# Micromamba
+micromamba/
+micromamba_bin
+
+# References (should be mounted as volumes)
+refs/
+
+# Large model files
+models/
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+*.log
+*.txt
+
+# Docker files from old daemon
+daemon/Dockerfile
+daemon/docker-compose.yml
+
+# Documentation (optional, can include if needed)
+*.md
+!README.md
+!README_DOCKER.md
+
+# Test files
+test/
+tests/
+*.test.py
