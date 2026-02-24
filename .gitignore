@@ -97,12 +97,20 @@ final_archived_results/
 active_run/
 refs/
 models/
+docker/data/
+
+# Genomics_Pipeline: *.py만 포함, 나머지 제외
+Genomics_Pipeline/**/*
+!Genomics_Pipeline/**/*/
+!Genomics_Pipeline/**/*.py
+Genomics_Pipeline/venv/
 
 # ===== Nextflow =====
 work/
 .nextflow/
 .nextflow.log
 .nextflow.log.*
+.nextflow.log.[0-9]
 .nextflow.log.[0-9]*
 
 # ===== Backup files =====
@@ -111,6 +119,10 @@ work/
 *.broken
 *.working_backup
 *.v2
+*_original.py
+*_fix.py
+*_old.py
+*_old*.py
 
 # ===== Logs & Temp =====
 *.log
@@ -119,9 +131,13 @@ dashboard.log
 ERROR
 .wget-hsts
 .cache/
+.cache
 local_settings.py
 db.sqlite3
 db.sqlite3-journal
+*.db
+temp_*.json
+index_v*.html
 
 # ===== Micromamba =====
 micromamba/
