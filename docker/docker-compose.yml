@@ -2,7 +2,7 @@ services:
   dark-gene-pipeline:
     build:
       context: ..
-      dockerfile: Dockerfile
+      dockerfile: docker/Dockerfile
     image: dark-gene-pipeline:latest
     container_name: dark-gene-pipeline
     ports:

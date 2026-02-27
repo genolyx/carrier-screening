@@ -172,15 +172,15 @@ workflow {
 
     // 2b. Track 1 Extension: Target Coverage & Intron Verification (Consolidated)
     if (params.backbone_bed) {
-        dark_genes_plus = file("${projectDir}/bed/dark_genes_plus.bed")
+        dark_genes_plus = file("${projectDir}/../data/bed/dark_genes_plus.bed")
         DEPTH_ANALYSIS(bam_ch, file(params.backbone_bed), dark_genes_plus)
     }
 
     // 2c. Track 1 Extension: Fallback Analysis (HBA/CYP21A2)
     if (params.backbone_bed) {
          FALLBACK_ANALYSIS(bam_ch, 
-             file(params.hba_bed ?: "${projectDir}/bed/hba_targets.bed"), 
-             file(params.cyp21a2_bed ?: "${projectDir}/bed/cyp21a2_targets.bed"), 
+             file(params.hba_bed ?: "${projectDir}/../data/bed/hba_targets.bed"), 
+             file(params.cyp21a2_bed ?: "${projectDir}/../data/bed/cyp21a2_targets.bed"), 
              file(params.backbone_bed), 
              ref_fasta, 
              ref_fai
@@ -192,7 +192,7 @@ workflow {
     SMACA_RUN(bam_ch)
 
     // 3b. Track 2b: Rescue Track (Dark Genes Plus)
-    dark_genes_plus = file("${projectDir}/bed/dark_genes_plus.bed")
+    dark_genes_plus = file("${projectDir}/../data/bed/dark_genes_plus.bed")
     PARAPHASE_RESCUE(bam_ch, ref_fasta, dark_genes_plus)
 
     // VERIFY_INTRON_DEPTH Logic is now merged into DEPTH_ANALYSIS above studio
@@ -247,7 +247,7 @@ workflow {
         SMACA_RUN.out.txt.map{ it[1] }.collect(),
         DEPTH_ANALYSIS.out.intron_report.collect(),
         GENERATE_VISUAL_EVIDENCE.out.snapshots.collect(), // Enforce dependency
-        file(params.backbone_bed ?: "${projectDir}/bed/Twist_Exome2.0_plus_Comprehensive_Exome_Spikein_targets_covered_annotated_hg38.bed")
+        file(params.backbone_bed ?: "${projectDir}/../data/bed/Twist_Exome2.0_plus_Comprehensive_Exome_Spikein_targets_covered_annotated_hg38.bed")
     )
 }
 

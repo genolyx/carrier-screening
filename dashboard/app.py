@@ -292,7 +292,7 @@ def start_pipeline():
             analysis_log = os.path.join(analysis_dir, f'{sample_name}.analysis.log')
             
             cmd = [
-                'nextflow', 'run', '/app/main.nf',
+                'nextflow', 'run', '/app/bin/main.nf',
                 '--fastq_dir', fastq_path,
                 '--outdir', analysis_dir,
                 '--output_dir', output_dir,
@@ -311,7 +311,7 @@ def start_pipeline():
                     with open(log_file, 'w') as f_log:
                         pipeline_process = subprocess.Popen(
                         cmd,
-                        cwd='/app',
+                        cwd='/app/bin',
                         stdout=subprocess.PIPE,
                         stderr=subprocess.STDOUT,
                         text=True,

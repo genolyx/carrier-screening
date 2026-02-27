@@ -146,7 +146,7 @@ docker run --rm \
     -e NXF_OPTS="-Xms1g -Xmx4g" \
     dark-gene-pipeline:latest \
     bash -c "
-        cd /app && \
+        cd /app/bin && \
         nextflow run main.nf \
             --input_dir /data/fastq/${WORK_DIR}/${SAMPLE_NAME} \
             --outdir /data/analysis/${WORK_DIR}/${SAMPLE_NAME} \
