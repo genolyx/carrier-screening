@@ -156,7 +156,7 @@ docker run --rm -t \
     -v "${DATA_DIR}/output:/data/output" \
     -v "${DATA_DIR}/log:/data/log" \
     -v "${DATA_DIR}/data:/app/data:ro" \
-    -v "$(realpath "$(dirname "$0")/../bin"):/app/bin:ro" \
+    -v "${DATA_DIR}/bin:/app/bin:ro" \
     -e NXF_OPTS="-Xms1g -Xmx4g" \
     -e NXF_CACHE_DIR="/data/analysis/${WORK_DIR}/${SAMPLE_NAME}/.nextflow" \
     carrier-screening:latest \
@@ -192,11 +192,16 @@ if [ $EXIT_CODE -eq 0 ]; then
     echo "  Output: ${DATA_DIR}/output/${WORK_DIR}/${SAMPLE_NAME}"
     echo "  Logs: ${DATA_DIR}/log/${WORK_DIR}/${SAMPLE_NAME}"
     echo ""
-    
-    # analysis.completed 마커 생성
-    touch "${FASTQ_DIR}/analysis.completed"
-    echo -e "${GREEN}✅ Created analysis.completed marker${NC}"
-    
+
+    # analysis.completed 마커 (FASTQ 가 ro/타 소유면 실패할 수 있음 — 파이프라인 성공과 무관)
+    if touch "${FASTQ_DIR}/analysis.completed" 2>/dev/null; then
+        echo -e "${GREEN}✅ Created analysis.completed marker${NC}"
+    elif touch "${DATA_DIR}/output/${WORK_DIR}/${SAMPLE_NAME}/analysis.completed" 2>/dev/null; then
+        echo -e "${GREEN}✅ Created analysis.completed in output dir${NC}"
+    else
+        echo -e "${YELLOW}⚠ Skipped analysis.completed (no write permission); pipeline succeeded.${NC}"
+    fi
+
     exit 0
 else
     echo -e "${RED}❌ Analysis failed with exit code: ${EXIT_CODE}${NC}"
