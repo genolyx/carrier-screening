@@ -46,9 +46,6 @@ refs/
 # Large model files
 models/
 
-# Genomics_Pipeline (large, mounted separately if needed)
-Genomics_Pipeline/
-
 # IDE
 .vscode
 .idea

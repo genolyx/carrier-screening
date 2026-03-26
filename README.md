@@ -133,12 +133,13 @@ carrier-screening/
 │   └── supervisord.conf   # Process management
 ├── dashboard/             # Local analysis dashboard (Flask)
 ├── daemon/                # [DEPRECATED] Legacy daemon → use service-daemon
-├── Genomics_Pipeline/     # [LEGACY] Reference code → migrated to service-daemon
 ├── data/                  # Reference data, BED files
 ├── docs/                  # Documentation
 ├── src/                   # Utility scripts
 └── .env.example           # Environment configuration template
 ```
+
+레거시 Genomics_Pipeline 참고 코드는 이 레포에 포함하지 않으며, 로컬 홈 디렉터리 `~/Genomics_Pipeline`에 두고 비교·참고용으로 사용할 수 있습니다 (대부분 [service-daemon](https://github.com/genolyx/service-daemon)으로 이전됨).
 
 ## Configuration
 
