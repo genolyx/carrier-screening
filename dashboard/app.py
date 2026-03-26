@@ -428,7 +428,8 @@ def status():
         if os.path.exists(trace_file):
             STAGES = {
                 'ALIGN_AND_SORT': 25,
-                'MARK_DUPLICATES': 30, 
+                'MARK_DUPLICATES': 30,
+                'SAMTOOLS_BAM_STATS': 32,
                 'CALL_VARIANTS': 50,
                 'EXPANSION_HUNTER': 70,
                 'GCNV_COHORT_RUN': 80,

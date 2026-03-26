@@ -7,7 +7,7 @@ params.cleanup = false // Default: Manual cleanup
 params.output_dir = null // Output directory for portal files
 params.sample_name = null // Sample name for tracking
 
-include { INDEX_BWA; ALIGN_AND_SORT; MARK_DUPLICATES } from './modules/align'
+include { INDEX_BWA; ALIGN_AND_SORT; MARK_DUPLICATES; SAMTOOLS_BAM_STATS } from './modules/align'
 include { GCNV_CLARITY; PREPROCESS_INTERVALS; COLLECT_READ_COUNTS; ANNOTATE_INTERVALS; GCNV_COHORT_RUN; GCNV_CASE_RUN; POSTPROCESS_GCNV } from './modules/cnv'
 include { PARAPHASE_RUN; SMACA_RUN; PARAPHASE_RESCUE } from './modules/pseudogene'
 include { GENERATE_SUMMARY_REPORT } from './modules/summary'
@@ -51,6 +51,8 @@ workflow {
     
     // Mark Duplicates (Consuming Sorted BAM)
     MARK_DUPLICATES(ALIGN_AND_SORT.out.bam)
+
+    SAMTOOLS_BAM_STATS(MARK_DUPLICATES.out.bam)
     
     // Use Marked BAM for downstream
     bam_ch = MARK_DUPLICATES.out.bam
@@ -346,6 +348,10 @@ workflow.onComplete {
             fi
             if [ -d "${params.outdir}/alignment" ]; then
                 cp ${params.outdir}/alignment/*_duplicate_metrics.txt ${qcOut}/ 2>/dev/null || true
+            fi
+            if [ -d "${params.outdir}/qc" ]; then
+                cp ${params.outdir}/qc/*.stats.txt ${qcOut}/ 2>/dev/null || true
+                cp ${params.outdir}/qc/*.bam.stats ${qcOut}/ 2>/dev/null || true
             fi
             
             # Pipeline info (trace, timeline, report)

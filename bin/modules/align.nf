@@ -132,3 +132,20 @@ process MARK_DUPLICATES {
         --VALIDATION_STRINGENCY SILENT
     """
 }
+
+process SAMTOOLS_BAM_STATS {
+    tag "$sample_id"
+    label 'samtools'
+    publishDir "${params.outdir}/qc", mode: 'copy'
+
+    input:
+    tuple val(sample_id), path(bam), path(bai)
+
+    output:
+    path "${sample_id}.stats.txt", emit: stats
+
+    script:
+    """
+    samtools stats -@ ${task.cpus} ${bam} > ${sample_id}.stats.txt
+    """
+}
