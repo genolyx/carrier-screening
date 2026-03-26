@@ -135,7 +135,7 @@ process MARK_DUPLICATES {
 
 process SAMTOOLS_BAM_STATS {
     tag "$sample_id"
-    label 'samtools'
+    label 'bwa'
     publishDir "${params.outdir}/qc", mode: 'copy'
 
     input:
@@ -146,6 +146,26 @@ process SAMTOOLS_BAM_STATS {
 
     script:
     """
+    # Micromamba + samtools (same pattern as ALIGN_AND_SORT; nested Docker cannot rely on samtools container)
+    export TMPDIR=\$PWD
+    export PATH=\$PWD:\$PATH
+    export CONDA_PKGS_DIRS=/home/sam/.cache/micromamba_pkgs
+    export MAMBA_ROOT_PREFIX=\$PWD/micromamba
+
+    mkdir -p \$CONDA_PKGS_DIRS \$MAMBA_ROOT_PREFIX
+
+    wget -q --no-check-certificate https://curl.se/ca/cacert.pem
+    export SSL_CERT_FILE=\$PWD/cacert.pem
+    export MAMBA_SSL_VERIFY=false
+
+    if [ ! -f "micromamba_bin" ]; then
+        wget -qO micromamba_bin https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-linux-64
+        chmod +x micromamba_bin
+    fi
+
+    ./micromamba_bin create -r \$MAMBA_ROOT_PREFIX -p ./env -c bioconda -c conda-forge samtools=1.16.1 -y
+    export PATH=\$PWD/env/bin:\$PATH
+
     samtools stats -@ ${task.cpus} ${bam} > ${sample_id}.stats.txt
     """
 }
