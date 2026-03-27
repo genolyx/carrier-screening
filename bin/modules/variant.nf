@@ -42,7 +42,7 @@ process CALL_VARIANTS_GATK {
         curl -k -L -o cacert.pem https://curl.se/ca/cacert.pem
         [ ! -f "micromamba_bin" ] && curl -k -L -o micromamba_bin https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-linux-64
     else
-        wget -q --no-check-certificate https://curl.se/ca/cacert.pem
+        wget -q --no-check-certificate https://curl.se/ca/cacert.pem || true
         [ ! -f "micromamba_bin" ] && wget -qO micromamba_bin https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-linux-64
     fi
     
@@ -50,7 +50,7 @@ process CALL_VARIANTS_GATK {
     export MAMBA_SSL_VERIFY=false
     chmod +x micromamba_bin
     
-    ./micromamba_bin create -r \$MAMBA_ROOT_PREFIX -p ./env -c bioconda -c conda-forge gatk4=4.4.0.0 -y
+    [ -f micromamba_bin ] && ./micromamba_bin create -r \$MAMBA_ROOT_PREFIX -p ./env -c bioconda -c conda-forge gatk4=4.4.0.0 -y || true
     export PATH=\$PWD/env/bin:\$PATH
 
     # Step 1: HaplotypeCaller
@@ -130,7 +130,7 @@ process CALL_VARIANTS_DEEPVARIANT {
             curl -k -L -o cacert.pem https://curl.se/ca/cacert.pem
             [ ! -f "micromamba_bin" ] && curl -k -L -o micromamba_bin https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-linux-64
         else
-            wget -q --no-check-certificate https://curl.se/ca/cacert.pem
+            wget -q --no-check-certificate https://curl.se/ca/cacert.pem || true
             [ ! -f "micromamba_bin" ] && wget -qO micromamba_bin https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-linux-64
         fi
         
@@ -138,7 +138,7 @@ process CALL_VARIANTS_DEEPVARIANT {
         export MAMBA_SSL_VERIFY=false
         chmod +x micromamba_bin
         
-        ./micromamba_bin create -r \$MAMBA_ROOT_PREFIX -p ./env -c bioconda -c conda-forge bcftools -y
+        [ -f micromamba_bin ] && ./micromamba_bin create -r \$MAMBA_ROOT_PREFIX -p ./env -c bioconda -c conda-forge bcftools -y || true
         export PATH=\$PWD/env/bin:\$PATH
         BCFTOOLS=bcftools
     fi
@@ -178,7 +178,7 @@ process CALL_VARIANTS_STRELKA2 {
         curl -k -L -o cacert.pem https://curl.se/ca/cacert.pem
         [ ! -f "micromamba_bin" ] && curl -k -L -o micromamba_bin https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-linux-64
     else
-        wget -q --no-check-certificate https://curl.se/ca/cacert.pem
+        wget -q --no-check-certificate https://curl.se/ca/cacert.pem || true
         [ ! -f "micromamba_bin" ] && wget -qO micromamba_bin https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-linux-64
     fi
     
@@ -187,7 +187,7 @@ process CALL_VARIANTS_STRELKA2 {
     chmod +x micromamba_bin
     
     # Install Strelka2 and bgzip/tabix (htslib)
-    ./micromamba_bin create -r \$MAMBA_ROOT_PREFIX -p ./env -c bioconda -c conda-forge strelka=2.9.10 htslib bcftools -y
+    [ -f micromamba_bin ] && ./micromamba_bin create -r \$MAMBA_ROOT_PREFIX -p ./env -c bioconda -c conda-forge strelka=2.9.10 htslib bcftools -y || true
     export PATH=\$PWD/env/bin:\$PATH
 
     # Step 1: Configure Strelka2 for germline WES
@@ -245,7 +245,7 @@ process CALL_VARIANTS {
         curl -k -L -o cacert.pem https://curl.se/ca/cacert.pem
         [ ! -f "micromamba_bin" ] && curl -k -L -o micromamba_bin https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-linux-64
     else
-        wget -q --no-check-certificate https://curl.se/ca/cacert.pem
+        wget -q --no-check-certificate https://curl.se/ca/cacert.pem || true
         [ ! -f "micromamba_bin" ] && wget -qO micromamba_bin https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-linux-64
     fi
     
@@ -253,7 +253,7 @@ process CALL_VARIANTS {
     export MAMBA_SSL_VERIFY=false
     chmod +x micromamba_bin
     
-    ./micromamba_bin create -r \$MAMBA_ROOT_PREFIX -p ./env -c bioconda -c conda-forge gatk4=4.4.0.0 -y
+    [ -f micromamba_bin ] && ./micromamba_bin create -r \$MAMBA_ROOT_PREFIX -p ./env -c bioconda -c conda-forge gatk4=4.4.0.0 -y || true
     export PATH=\$PWD/env/bin:\$PATH
 
     gatk HaplotypeCaller \\

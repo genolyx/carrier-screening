@@ -30,19 +30,19 @@ process EXPANSION_HUNTER {
     mkdir -p \$MAMBA_ROOT_PREFIX
 
     # SSL Fix
-    wget -q --no-check-certificate https://curl.se/ca/cacert.pem
+    wget -q --no-check-certificate https://curl.se/ca/cacert.pem || true
     export SSL_CERT_FILE=\$PWD/cacert.pem
     export MAMBA_SSL_VERIFY=false
 
     # Install Micromamba & ExpansionHunter
     if [ ! -f "micromamba_bin" ]; then
-        wget -qO micromamba_bin https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-linux-64
-        chmod +x micromamba_bin
+        wget -qO micromamba_bin https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-linux-64 \
+            && chmod +x micromamba_bin || true
     fi
     
     # Reverted: 'reviewer' removed from conda to avoid dependency conflicts (Boost/fmt versions)
     # Downgraded: expansionhunter=4.0.2 (Stable, Compatible with REViewer)
-    ./micromamba_bin create -r \$MAMBA_ROOT_PREFIX -p ./env -c bioconda -c conda-forge expansionhunter=4.0.2 samtools -y
+    [ -f micromamba_bin ] && ./micromamba_bin create -r \$MAMBA_ROOT_PREFIX -p ./env -c bioconda -c conda-forge expansionhunter=4.0.2 samtools -y || true
     export PATH=\$PWD/env/bin:\$PATH
 
     # Install REViewer manually (Standalone Binary)

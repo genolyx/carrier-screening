@@ -158,7 +158,7 @@ mkdir -p "${DATA_DIR}/output/${WORK_DIR}/${SAMPLE_NAME}"
 mkdir -p "${DATA_DIR}/log/${WORK_DIR}/${SAMPLE_NAME}"
 
 echo "======================================"
-echo "Dark Gene Pipeline - Sample Analysis"
+echo "Carrier Screening Pipeline - Sample Analysis"
 echo "======================================"
 echo ""
 echo -e "${GREEN}Configuration:${NC}"
@@ -199,6 +199,13 @@ if [ -n "$FRESH" ]; then
     NEXTFLOW_RESUME=""
 fi
 
+# DeepVariant/Strelka2는 전용 Docker 컨테이너가 필요 → -profile docker
+# GATK/기본 조합은 carrier-screening 컨테이너 내 micromamba 방식으로 실행 (docker 불필요)
+NXF_PROFILE=""
+if [ "$VARIANT_CALLER" = "deepvariant" ] || [ "$VARIANT_CALLER" = "strelka2" ]; then
+    NXF_PROFILE="-profile docker"
+fi
+
 # Docker 이미지 확인
 if ! docker images | grep -q "carrier-screening"; then
     echo -e "${RED}Error: Docker image 'carrier-screening' not found${NC}"
@@ -214,6 +221,15 @@ echo ""
 # Docker 컨테이너 실행 (root로 실행 후 출력 파일 소유권 수정)
 # nextflow.config가 projectDir/../data/refs, data/bed 경로 사용 → /app/data 마운트 필요
 # /data/reference 마운트: data/refs 내 심볼릭 링크 대상 경로 접근을 위해 필요
+# HOST_WORK_DIR: Nextflow이 태스크 컨테이너에 work dir를 마운트할 때 호스트 경로를 써야 합니다.
+# 컨테이너 내부 경로(/data/analysis/...)를 쓰면 호스트 Docker 데몬이 경로를 찾지 못해
+# DeepVariant 등 태스크 컨테이너가 작업 디렉터리를 마운트하지 못합니다.
+HOST_WORK_DIR="${DATA_DIR}/analysis/${WORK_DIR}/${SAMPLE_NAME}/work"
+
+# Docker binary path on the host — bind-mounted into the container so
+# Nextflow (docker.enabled=true) can spawn task containers via the host daemon.
+DOCKER_BIN="$(which docker)"
+
 docker run --rm -t \
     -v "${DATA_DIR}/fastq:/data/fastq:ro" \
     -v "${DATA_DIR}/analysis:/data/analysis" \
@@ -221,31 +237,46 @@ docker run --rm -t \
     -v "${DATA_DIR}/log:/data/log" \
     -v "${DATA_DIR}/data:/app/data:ro" \
     -v "${DATA_DIR}/bin:/app/bin:ro" \
-    -v "${SHARED_REF_DIR}:${SHARED_REF_DIR}:ro" \
+    -v "${DATA_DIR}/fastq:${DATA_DIR}/fastq:ro" \
+    -v "${DATA_DIR}/analysis:${DATA_DIR}/analysis" \
+    -v "${DATA_DIR}/output:${DATA_DIR}/output" \
+    -v "${DATA_DIR}/log:${DATA_DIR}/log" \
+    -v "${DATA_DIR}/data:${DATA_DIR}/data:ro" \
+    -v /data/reference:/data/reference:ro \
     -v /var/run/docker.sock:/var/run/docker.sock \
+    -v "${DOCKER_BIN}:/usr/local/bin/docker:ro" \
     -e NXF_OPTS="-Xms1g -Xmx4g" \
-    -e NXF_CACHE_DIR="/data/analysis/${WORK_DIR}/${SAMPLE_NAME}/.nextflow" \
-    -e HOST_DATA_DIR="${DATA_DIR}" \
-    -e HOST_SHARED_REF_DIR="${SHARED_REF_DIR}" \
+    -e NXF_CACHE_DIR="${DATA_DIR}/analysis/${WORK_DIR}/${SAMPLE_NAME}/.nextflow" \
+    -e NXF_DATA_DIR="${DATA_DIR}" \
     carrier-screening:latest \
     bash -c "
-        cd /data/analysis/${WORK_DIR}/${SAMPLE_NAME} && \
-        nextflow -log /data/log/${WORK_DIR}/${SAMPLE_NAME}/nextflow.log run /app/bin/main.nf \
-            -ansi-log false ${NEXTFLOW_RESUME} \
-            --fastq_dir /data/fastq/${WORK_DIR}/${SAMPLE_NAME} \
+        cd ${DATA_DIR}/analysis/${WORK_DIR}/${SAMPLE_NAME} && \
+        nextflow -log ${DATA_DIR}/log/${WORK_DIR}/${SAMPLE_NAME}/nextflow.log run /app/bin/main.nf \
+            -ansi-log false ${NEXTFLOW_RESUME} ${NXF_PROFILE} \
+            --fastq_dir ${DATA_DIR}/fastq/${WORK_DIR}/${SAMPLE_NAME} \
+            --ref_fasta ${DATA_DIR}/data/refs/GRCh38.fasta \
+            --ref_fai ${DATA_DIR}/data/refs/GRCh38.fasta.fai \
+            --ref_dict ${DATA_DIR}/data/refs/GRCh38.dict \
+            --ref_bwa_indices ${DATA_DIR}/data/refs/bwa_index \
+            --backbone_bed ${DATA_DIR}/data/bed/Twist_Exome2.0_plus_Comprehensive_Exome_Spikein_targets_covered_annotated_hg38.bed \
+            --vep_cache_dir ${DATA_DIR}/data/refs/vep_cache \
+            --dark_genes_plus_bed ${DATA_DIR}/data/bed/dark_genes_plus.bed \
+            --hba_bed ${DATA_DIR}/data/bed/hba_targets.bed \
+            --cyp21a2_bed ${DATA_DIR}/data/bed/cyp21a2_targets.bed \
+            --eh_catalog ${DATA_DIR}/data/bed/variant_catalog_grch38.json \
             --aligner ${ALIGNER} \
             --variant_caller ${VARIANT_CALLER} \
             --skip_vep ${SKIP_VEP} \
             ${SKIP_CNV} \
-            --outdir /data/analysis/${WORK_DIR}/${SAMPLE_NAME} \
-            --output_dir /data/output/${WORK_DIR}/${SAMPLE_NAME} \
+            --outdir ${DATA_DIR}/analysis/${WORK_DIR}/${SAMPLE_NAME} \
+            --output_dir ${DATA_DIR}/output/${WORK_DIR}/${SAMPLE_NAME} \
             --sample_name ${SAMPLE_NAME} \
             ${CLEANUP} \
-            -work-dir ./work \
-            -with-report /data/log/${WORK_DIR}/${SAMPLE_NAME}/report.html \
-            -with-trace /data/log/${WORK_DIR}/${SAMPLE_NAME}/trace.txt \
-            -with-timeline /data/log/${WORK_DIR}/${SAMPLE_NAME}/timeline.html \
-            -with-dag /data/log/${WORK_DIR}/${SAMPLE_NAME}/dag.html
+            -work-dir ${HOST_WORK_DIR} \
+            -with-report ${DATA_DIR}/log/${WORK_DIR}/${SAMPLE_NAME}/report.html \
+            -with-trace ${DATA_DIR}/log/${WORK_DIR}/${SAMPLE_NAME}/trace.txt \
+            -with-timeline ${DATA_DIR}/log/${WORK_DIR}/${SAMPLE_NAME}/timeline.html \
+            -with-dag ${DATA_DIR}/log/${WORK_DIR}/${SAMPLE_NAME}/dag.html
     "
 
 EXIT_CODE=$?

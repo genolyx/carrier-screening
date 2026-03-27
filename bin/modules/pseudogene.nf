@@ -28,20 +28,20 @@ process PARAPHASE_RUN {
     mkdir -p \$MAMBA_ROOT_PREFIX
 
     # Fix: Install SSL certs for Micromamba
-    wget -q --no-check-certificate https://curl.se/ca/cacert.pem
+    wget -q --no-check-certificate https://curl.se/ca/cacert.pem || true
     export SSL_CERT_FILE=\$PWD/cacert.pem
 
     # Fix: Use Micromamba for robust dependency resolution
     if [ ! -f "micromamba_bin" ]; then
-        wget -qO micromamba_bin https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-linux-64
-        chmod +x micromamba_bin
+        wget -qO micromamba_bin https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-linux-64 \
+            && chmod +x micromamba_bin || true
     fi
     
     # Fix: Disable SSL verify to bypass missing CA certs
     export MAMBA_SSL_VERIFY=false
     
     # Create temp environment with dependencies from Bioconda
-    ./micromamba_bin create -r \$MAMBA_ROOT_PREFIX -p ./env -c bioconda -c conda-forge python=3.9 pip samtools=1.16.1 minimap2=2.24 -y
+    [ -f micromamba_bin ] && ./micromamba_bin create -r \$MAMBA_ROOT_PREFIX -p ./env -c bioconda -c conda-forge python=3.9 pip samtools=1.16.1 minimap2=2.24 -y || true
     
     export PATH=\$PWD/env/bin:\$PATH
 
@@ -165,17 +165,17 @@ process SMACA_RUN {
     mkdir -p \$MAMBA_ROOT_PREFIX
 
     # SSL Fix
-    wget -q --no-check-certificate https://curl.se/ca/cacert.pem
+    wget -q --no-check-certificate https://curl.se/ca/cacert.pem || true
     export SSL_CERT_FILE=\$PWD/cacert.pem
     export MAMBA_SSL_VERIFY=false
 
     # Install Micromamba & SMAca
     if [ ! -f "micromamba_bin" ]; then
-        wget -qO micromamba_bin https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-linux-64
-        chmod +x micromamba_bin
+        wget -qO micromamba_bin https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-linux-64 \
+            && chmod +x micromamba_bin || true
     fi
     
-    ./micromamba_bin create -r \$MAMBA_ROOT_PREFIX -p ./env -c bioconda -c conda-forge smaca -y
+    [ -f micromamba_bin ] && ./micromamba_bin create -r \$MAMBA_ROOT_PREFIX -p ./env -c bioconda -c conda-forge smaca -y || true
     export PATH=\$PWD/env/bin:\$PATH
 
     # SMAca v1.2.3 usage
@@ -221,20 +221,20 @@ process PARAPHASE_RESCUE {
     mkdir -p \$MAMBA_ROOT_PREFIX
 
     # Fix: Install SSL certs for Micromamba
-    wget -q --no-check-certificate https://curl.se/ca/cacert.pem
+    wget -q --no-check-certificate https://curl.se/ca/cacert.pem || true
     export SSL_CERT_FILE=\$PWD/cacert.pem
 
     # Fix: Use Micromamba for robust dependency resolution
     if [ ! -f "micromamba_bin" ]; then
-        wget -qO micromamba_bin https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-linux-64
-        chmod +x micromamba_bin
+        wget -qO micromamba_bin https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-linux-64 \
+            && chmod +x micromamba_bin || true
     fi
     
     # Fix: Disable SSL verify to bypass missing CA certs
     export MAMBA_SSL_VERIFY=false
     
     # Create temp environment with dependencies from Bioconda
-    ./micromamba_bin create -r \$MAMBA_ROOT_PREFIX -p ./env -c bioconda -c conda-forge python=3.9 pip samtools=1.16.1 minimap2=2.24 -y
+    [ -f micromamba_bin ] && ./micromamba_bin create -r \$MAMBA_ROOT_PREFIX -p ./env -c bioconda -c conda-forge python=3.9 pip samtools=1.16.1 minimap2=2.24 -y || true
     
     export PATH=\$PWD/env/bin:\$PATH
 
@@ -517,17 +517,17 @@ process CONSOLIDATE_RESCUE {
     mkdir -p \$MAMBA_ROOT_PREFIX
 
     # SSL Fix
-    wget -q --no-check-certificate https://curl.se/ca/cacert.pem
+    wget -q --no-check-certificate https://curl.se/ca/cacert.pem || true
     export SSL_CERT_FILE=\$PWD/cacert.pem
     export MAMBA_SSL_VERIFY=false
 
     # Install Micromamba & Python
     if [ ! -f "micromamba_bin" ]; then
-        wget -qO micromamba_bin https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-linux-64
-        chmod +x micromamba_bin
+        wget -qO micromamba_bin https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-linux-64 \
+            && chmod +x micromamba_bin || true
     fi
     
-    ./micromamba_bin create -r \$MAMBA_ROOT_PREFIX -p ./env -c bioconda -c conda-forge python=3.9 -y
+    [ -f micromamba_bin ] && ./micromamba_bin create -r \$MAMBA_ROOT_PREFIX -p ./env -c bioconda -c conda-forge python=3.9 -y || true
     export PATH=\$PWD/env/bin:\$PATH
 
     # --- Python Aggregation Script ---

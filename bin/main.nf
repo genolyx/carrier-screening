@@ -124,15 +124,17 @@ workflow {
     // -------------------------------------------------------
     interval_list_ch = Channel.empty()
 
-    if (params.interval_list) {
-        interval_list_ch = Channel.value(file(params.interval_list))
-    } else if (params.backbone_bed) {
-        PREPROCESS_INTERVALS(file(params.backbone_bed), ref_fasta, ref_fai, file(params.ref_dict))
-        interval_list_ch = PREPROCESS_INTERVALS.out.interval_list
-    }
+    if (!params.skip_cnv) {
+        if (params.interval_list) {
+            interval_list_ch = Channel.value(file(params.interval_list))
+        } else if (params.backbone_bed) {
+            PREPROCESS_INTERVALS(file(params.backbone_bed), ref_fasta, ref_fai, file(params.ref_dict))
+            interval_list_ch = PREPROCESS_INTERVALS.out.interval_list
+        }
 
-    if (params.backbone_bed || params.interval_list) {
-        COLLECT_READ_COUNTS(bam_ch, interval_list_ch, ref_fasta, ref_fai, file(params.ref_dict))
+        if (params.backbone_bed || params.interval_list) {
+            COLLECT_READ_COUNTS(bam_ch, interval_list_ch, ref_fasta, ref_fai, file(params.ref_dict))
+        }
     }
 
     if (!params.skip_cnv && (params.backbone_bed || params.interval_list)) {
@@ -206,7 +208,7 @@ workflow {
 
     // 2b. Target Coverage & Intron Verification
     if (params.backbone_bed) {
-        dark_genes_plus = file("${projectDir}/../data/bed/dark_genes_plus.bed")
+        dark_genes_plus = file(params.dark_genes_plus_bed)
         DEPTH_ANALYSIS(bam_ch, file(params.backbone_bed), dark_genes_plus)
     }
 
@@ -214,8 +216,8 @@ workflow {
     if (params.backbone_bed) {
         FALLBACK_ANALYSIS(
             bam_ch,
-            file(params.hba_bed     ?: "${projectDir}/../data/bed/hba_targets.bed"),
-            file(params.cyp21a2_bed ?: "${projectDir}/../data/bed/cyp21a2_targets.bed"),
+            file(params.hba_bed),
+            file(params.cyp21a2_bed),
             file(params.backbone_bed),
             ref_fasta,
             ref_fai
@@ -227,8 +229,7 @@ workflow {
     // -------------------------------------------------------
     PARAPHASE_RUN(bam_ch, ref_fasta, ref_fai)
     SMACA_RUN(bam_ch)
-    dark_genes_plus = file("${projectDir}/../data/bed/dark_genes_plus.bed")
-    PARAPHASE_RESCUE(bam_ch, ref_fasta, dark_genes_plus)
+    PARAPHASE_RESCUE(bam_ch, ref_fasta, file(params.dark_genes_plus_bed))
 
     // -------------------------------------------------------
     // 4. Track 3: Repeat Expansion
@@ -328,7 +329,7 @@ workflow {
         SMACA_RUN.out.txt.map { it[1] }.collect(),
         DEPTH_ANALYSIS.out.intron_report.collect(),
         GENERATE_VISUAL_EVIDENCE.out.snapshots.collect(),
-        file(params.backbone_bed ?: "${projectDir}/../data/bed/Twist_Exome2.0_plus_Comprehensive_Exome_Spikein_targets_covered_annotated_hg38.bed")
+        file(params.backbone_bed)
     )
 }
 

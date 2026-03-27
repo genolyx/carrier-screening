@@ -27,18 +27,18 @@ process DEPTH_ANALYSIS {
     mkdir -p \$CONDA_PKGS_DIRS \$MAMBA_ROOT_PREFIX
 
     # SSL Fix
-    wget -q --no-check-certificate https://curl.se/ca/cacert.pem
+    wget -q --no-check-certificate https://curl.se/ca/cacert.pem || true
     export SSL_CERT_FILE=\$PWD/cacert.pem
     export MAMBA_SSL_VERIFY=false
 
     # Install Micromamba & Tools
     if [ ! -f "micromamba_bin" ]; then
-        wget -qO micromamba_bin https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-linux-64
-        chmod +x micromamba_bin
+        wget -qO micromamba_bin https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-linux-64 \
+            && chmod +x micromamba_bin || true
     fi
     
     # Create env with samtools and mosdepth
-    ./micromamba_bin create -r \$MAMBA_ROOT_PREFIX -p ./env -c bioconda -c conda-forge samtools=1.16.1 mosdepth=0.3.3 -y
+    [ -f micromamba_bin ] && ./micromamba_bin create -r \$MAMBA_ROOT_PREFIX -p ./env -c bioconda -c conda-forge samtools=1.16.1 mosdepth=0.3.3 -y || true
     export PATH=\$PWD/env/bin:\$PATH
     
     # --- Analysis ---

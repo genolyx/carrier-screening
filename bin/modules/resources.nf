@@ -24,18 +24,18 @@ process PREPARE_VIZ_RESOURCES {
     export MAMBA_ROOT_PREFIX=\$PWD/micromamba
     
     mkdir -p \$CONDA_PKGS_DIRS \$MAMBA_ROOT_PREFIX
-    wget -q --no-check-certificate https://curl.se/ca/cacert.pem
+    wget -q --no-check-certificate https://curl.se/ca/cacert.pem || true
     export SSL_CERT_FILE=\$PWD/cacert.pem
     export MAMBA_SSL_VERIFY=false
 
     if [ ! -f "micromamba_bin" ]; then
-        wget -qO micromamba_bin https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-linux-64
-        chmod +x micromamba_bin
+        wget -qO micromamba_bin https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-linux-64 \
+            && chmod +x micromamba_bin || true
     fi
     
     echo "Creating Shared Visualization Environment..."
     # Install: igv-reports, htslib (tabix), bwa, samtools
-    ./micromamba_bin create -r \$MAMBA_ROOT_PREFIX -p ./viz_env -c bioconda -c conda-forge python=3.9 igv-reports pysam htslib bwa samtools -y
+    [ -f micromamba_bin ] && ./micromamba_bin create -r \$MAMBA_ROOT_PREFIX -p ./viz_env -c bioconda -c conda-forge python=3.9 igv-reports pysam htslib bwa samtools -y || true
     
     # Activate for use in this script
     export PATH=\$PWD/viz_env/bin:\$PATH

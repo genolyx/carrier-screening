@@ -7,6 +7,9 @@
 //
 // Common downstream processes (MARK_DUPLICATES, SAMTOOLS_BAM_STATS)
 // are shared regardless of aligner choice.
+//
+// Micromamba setup is skipped when the required tool is already
+// available in the container image (Docker profile).
 // ============================================================
 
 // -------------------------------------------------------
@@ -22,19 +25,22 @@ process INDEX_BWA {
     tuple path(ref_fasta), path("*.{amb,ann,bwt,pac,sa}"), emit: indices
     script:
     """
-    export TMPDIR=\$PWD
-    export CONDA_PKGS_DIRS=\$PWD/.cache/micromamba_pkgs
-    export MAMBA_ROOT_PREFIX=\$PWD/micromamba
-    mkdir -p \$CONDA_PKGS_DIRS \$MAMBA_ROOT_PREFIX
-    wget -q --no-check-certificate https://curl.se/ca/cacert.pem
-    export SSL_CERT_FILE=\$PWD/cacert.pem
-    export MAMBA_SSL_VERIFY=false
-    if [ ! -f "micromamba_bin" ]; then
-        wget -qO micromamba_bin https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-linux-64
-        chmod +x micromamba_bin
+    if ! command -v bwa &>/dev/null; then
+        export TMPDIR=\$PWD
+        export CONDA_PKGS_DIRS=\$PWD/.cache/micromamba_pkgs
+        export MAMBA_ROOT_PREFIX=\$PWD/micromamba
+        mkdir -p \$CONDA_PKGS_DIRS \$MAMBA_ROOT_PREFIX
+        wget -q --no-check-certificate https://curl.se/ca/cacert.pem || true
+        export SSL_CERT_FILE=\$PWD/cacert.pem
+        export MAMBA_SSL_VERIFY=false
+        if [ ! -f "micromamba_bin" ]; then
+            wget -qO micromamba_bin https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-linux-64 && chmod +x micromamba_bin || true
+        fi
+        if [ -f micromamba_bin ]; then
+            ./micromamba_bin create -r \$MAMBA_ROOT_PREFIX -p ./env -c bioconda -c conda-forge bwa=0.7.17 -y
+            export PATH=\$PWD/env/bin:\$PATH
+        fi
     fi
-    ./micromamba_bin create -r \$MAMBA_ROOT_PREFIX -p ./env -c bioconda -c conda-forge bwa=0.7.17 -y
-    export PATH=\$PWD/env/bin:\$PATH
     bwa index ${ref_fasta}
     """
 }
@@ -55,19 +61,22 @@ process INDEX_BWA_MEM2 {
     tuple path(ref_fasta), path("*.{0123,amb,ann,bwt.2bit.64,pac}"), emit: indices
     script:
     """
-    export TMPDIR=\$PWD
-    export CONDA_PKGS_DIRS=\$PWD/.cache/micromamba_pkgs
-    export MAMBA_ROOT_PREFIX=\$PWD/micromamba
-    mkdir -p \$CONDA_PKGS_DIRS \$MAMBA_ROOT_PREFIX
-    wget -q --no-check-certificate https://curl.se/ca/cacert.pem
-    export SSL_CERT_FILE=\$PWD/cacert.pem
-    export MAMBA_SSL_VERIFY=false
-    if [ ! -f "micromamba_bin" ]; then
-        wget -qO micromamba_bin https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-linux-64
-        chmod +x micromamba_bin
+    if ! command -v bwa-mem2 &>/dev/null; then
+        export TMPDIR=\$PWD
+        export CONDA_PKGS_DIRS=\$PWD/.cache/micromamba_pkgs
+        export MAMBA_ROOT_PREFIX=\$PWD/micromamba
+        mkdir -p \$CONDA_PKGS_DIRS \$MAMBA_ROOT_PREFIX
+        wget -q --no-check-certificate https://curl.se/ca/cacert.pem || true
+        export SSL_CERT_FILE=\$PWD/cacert.pem
+        export MAMBA_SSL_VERIFY=false
+        if [ ! -f "micromamba_bin" ]; then
+            wget -qO micromamba_bin https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-linux-64 && chmod +x micromamba_bin || true
+        fi
+        if [ -f micromamba_bin ]; then
+            ./micromamba_bin create -r \$MAMBA_ROOT_PREFIX -p ./env -c bioconda -c conda-forge bwa-mem2=2.2.1 -y
+            export PATH=\$PWD/env/bin:\$PATH
+        fi
     fi
-    ./micromamba_bin create -r \$MAMBA_ROOT_PREFIX -p ./env -c bioconda -c conda-forge bwa-mem2=2.2.1 samtools=1.16.1 -y
-    export PATH=\$PWD/env/bin:\$PATH
     bwa-mem2 index ${ref_fasta}
     """
 }
@@ -89,21 +98,22 @@ process ALIGN_AND_SORT {
     script:
     """
     export TMPDIR=\$PWD
-    export PATH=\$PWD:\$PATH
-    export CONDA_PKGS_DIRS=\$PWD/.cache/micromamba_pkgs
-    export MAMBA_ROOT_PREFIX=\$PWD/micromamba
-    mkdir -p \$CONDA_PKGS_DIRS \$MAMBA_ROOT_PREFIX
-    wget -q --no-check-certificate https://curl.se/ca/cacert.pem
-    export SSL_CERT_FILE=\$PWD/cacert.pem
-    export MAMBA_SSL_VERIFY=false
-    if [ ! -f "micromamba_bin" ]; then
-        wget -qO micromamba_bin https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-linux-64
-        chmod +x micromamba_bin
+    if ! command -v bwa &>/dev/null || ! command -v samtools &>/dev/null; then
+        export CONDA_PKGS_DIRS=\$PWD/.cache/micromamba_pkgs
+        export MAMBA_ROOT_PREFIX=\$PWD/micromamba
+        mkdir -p \$CONDA_PKGS_DIRS \$MAMBA_ROOT_PREFIX
+        wget -q --no-check-certificate https://curl.se/ca/cacert.pem || true
+        export SSL_CERT_FILE=\$PWD/cacert.pem
+        export MAMBA_SSL_VERIFY=false
+        if [ ! -f "micromamba_bin" ]; then
+            wget -qO micromamba_bin https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-linux-64 && chmod +x micromamba_bin || true
+        fi
+        if [ -f micromamba_bin ]; then
+            ./micromamba_bin create -r \$MAMBA_ROOT_PREFIX -p ./env -c bioconda -c conda-forge bwa=0.7.17 samtools=1.16.1 -y
+            export PATH=\$PWD/env/bin:\$PATH
+        fi
     fi
-    ./micromamba_bin create -r \$MAMBA_ROOT_PREFIX -p ./env -c bioconda -c conda-forge bwa=0.7.17 samtools=1.16.1 -y
-    export PATH=\$PWD/env/bin:\$PATH
 
-    # Pipe bwa mem directly into samtools sort to avoid large intermediate SAM
     bwa mem -t ${task.cpus} \\
         -R '@RG\\tID:${sample_id}\\tSM:${sample_id}\\tPL:ILLUMINA' \\
         ${ref_fasta} ${reads[0]} ${reads[1]} | \\
@@ -134,22 +144,22 @@ process ALIGN_AND_SORT_BWA_MEM2 {
     script:
     """
     export TMPDIR=\$PWD
-    export PATH=\$PWD:\$PATH
-    export CONDA_PKGS_DIRS=\$PWD/.cache/micromamba_pkgs
-    export MAMBA_ROOT_PREFIX=\$PWD/micromamba
-    mkdir -p \$CONDA_PKGS_DIRS \$MAMBA_ROOT_PREFIX
-    wget -q --no-check-certificate https://curl.se/ca/cacert.pem
-    export SSL_CERT_FILE=\$PWD/cacert.pem
-    export MAMBA_SSL_VERIFY=false
-    if [ ! -f "micromamba_bin" ]; then
-        wget -qO micromamba_bin https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-linux-64
-        chmod +x micromamba_bin
+    if ! command -v bwa-mem2 &>/dev/null || ! command -v samtools &>/dev/null; then
+        export CONDA_PKGS_DIRS=\$PWD/.cache/micromamba_pkgs
+        export MAMBA_ROOT_PREFIX=\$PWD/micromamba
+        mkdir -p \$CONDA_PKGS_DIRS \$MAMBA_ROOT_PREFIX
+        wget -q --no-check-certificate https://curl.se/ca/cacert.pem || true
+        export SSL_CERT_FILE=\$PWD/cacert.pem
+        export MAMBA_SSL_VERIFY=false
+        if [ ! -f "micromamba_bin" ]; then
+            wget -qO micromamba_bin https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-linux-64 && chmod +x micromamba_bin || true
+        fi
+        if [ -f micromamba_bin ]; then
+            ./micromamba_bin create -r \$MAMBA_ROOT_PREFIX -p ./env -c bioconda -c conda-forge bwa-mem2=2.2.1 samtools=1.16.1 -y
+            export PATH=\$PWD/env/bin:\$PATH
+        fi
     fi
-    ./micromamba_bin create -r \$MAMBA_ROOT_PREFIX -p ./env -c bioconda -c conda-forge bwa-mem2=2.2.1 samtools=1.16.1 -y
-    export PATH=\$PWD/env/bin:\$PATH
 
-    # bwa-mem2 uses the same CLI as bwa mem, but the binary is 'bwa-mem2'
-    # Pipe directly into samtools sort to avoid large intermediate SAM
     bwa-mem2 mem -t ${task.cpus} \\
         -R '@RG\\tID:${sample_id}\\tSM:${sample_id}\\tPL:ILLUMINA' \\
         ${ref_fasta} ${reads[0]} ${reads[1]} | \\
@@ -174,23 +184,24 @@ process MARK_DUPLICATES {
     script:
     """
     export TMPDIR=\$PWD
-    export PATH=\$PWD:\$PATH
     export HOME=\$PWD
     export XDG_CACHE_HOME=\$PWD/.cache
-    export CONDA_PKGS_DIRS=\$HOME/.cache/micromamba_pkgs
-    export MAMBA_ROOT_PREFIX=\$PWD/micromamba
     mkdir -p \$XDG_CACHE_HOME
-    mkdir -p \$CONDA_PKGS_DIRS
-    mkdir -p \$MAMBA_ROOT_PREFIX
-    wget -q --no-check-certificate https://curl.se/ca/cacert.pem
-    export SSL_CERT_FILE=\$PWD/cacert.pem
-    export MAMBA_SSL_VERIFY=false
-    if [ ! -f "micromamba_bin" ]; then
-        wget -qO micromamba_bin https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-linux-64
-        chmod +x micromamba_bin
+    if ! command -v gatk &>/dev/null; then
+        export CONDA_PKGS_DIRS=\$HOME/.cache/micromamba_pkgs
+        export MAMBA_ROOT_PREFIX=\$PWD/micromamba
+        mkdir -p \$CONDA_PKGS_DIRS \$MAMBA_ROOT_PREFIX
+        wget -q --no-check-certificate https://curl.se/ca/cacert.pem || true
+        export SSL_CERT_FILE=\$PWD/cacert.pem
+        export MAMBA_SSL_VERIFY=false
+        if [ ! -f "micromamba_bin" ]; then
+            wget -qO micromamba_bin https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-linux-64 && chmod +x micromamba_bin || true
+        fi
+        if [ -f micromamba_bin ]; then
+            ./micromamba_bin create -r \$MAMBA_ROOT_PREFIX -p ./env -c bioconda -c conda-forge gatk4=4.4.0.0 -y
+            export PATH=\$PWD/env/bin:\$PATH
+        fi
     fi
-    ./micromamba_bin create -r \$MAMBA_ROOT_PREFIX -p ./env -c bioconda -c conda-forge gatk4=4.4.0.0 -y
-    export PATH=\$PWD/env/bin:\$PATH
 
     gatk MarkDuplicates \\
         -I ${bam} \\
@@ -206,7 +217,7 @@ process MARK_DUPLICATES {
 // -------------------------------------------------------
 process SAMTOOLS_BAM_STATS {
     tag "$sample_id"
-    label 'bwa'
+    label 'samtools'
     publishDir "${params.outdir}/qc", mode: 'copy'
     input:
     tuple val(sample_id), path(bam), path(bai)
@@ -215,19 +226,21 @@ process SAMTOOLS_BAM_STATS {
     script:
     """
     export TMPDIR=\$PWD
-    export PATH=\$PWD:\$PATH
-    export CONDA_PKGS_DIRS=\$PWD/.cache/micromamba_pkgs
-    export MAMBA_ROOT_PREFIX=\$PWD/micromamba
-    mkdir -p \$CONDA_PKGS_DIRS \$MAMBA_ROOT_PREFIX
-    wget -q --no-check-certificate https://curl.se/ca/cacert.pem
-    export SSL_CERT_FILE=\$PWD/cacert.pem
-    export MAMBA_SSL_VERIFY=false
-    if [ ! -f "micromamba_bin" ]; then
-        wget -qO micromamba_bin https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-linux-64
-        chmod +x micromamba_bin
+    if ! command -v samtools &>/dev/null; then
+        export CONDA_PKGS_DIRS=\$PWD/.cache/micromamba_pkgs
+        export MAMBA_ROOT_PREFIX=\$PWD/micromamba
+        mkdir -p \$CONDA_PKGS_DIRS \$MAMBA_ROOT_PREFIX
+        wget -q --no-check-certificate https://curl.se/ca/cacert.pem || true
+        export SSL_CERT_FILE=\$PWD/cacert.pem
+        export MAMBA_SSL_VERIFY=false
+        if [ ! -f "micromamba_bin" ]; then
+            wget -qO micromamba_bin https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-linux-64 && chmod +x micromamba_bin || true
+        fi
+        if [ -f micromamba_bin ]; then
+            ./micromamba_bin create -r \$MAMBA_ROOT_PREFIX -p ./env -c bioconda -c conda-forge samtools=1.16.1 -y
+            export PATH=\$PWD/env/bin:\$PATH
+        fi
     fi
-    ./micromamba_bin create -r \$MAMBA_ROOT_PREFIX -p ./env -c bioconda -c conda-forge samtools=1.16.1 -y
-    export PATH=\$PWD/env/bin:\$PATH
 
     samtools stats -@ ${task.cpus} ${bam} > ${sample_id}.stats.txt
     """
