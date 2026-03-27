@@ -24,11 +24,16 @@ Options:
     -r, --ref-dir DIR          Reference directory path (default: ./refs)
     -c, --cleanup              Clean up work directory after completion
     --skip-cnv                 Skip CNV analysis (single sample 시 필요, cohort mode는 2+ 샘플 필요)
+    --aligner ALIGNER          Aligner to use: bwa-mem (default) or bwa-mem2
+    --variant-caller CALLER    Variant caller: gatk (default), deepvariant, or strelka2
+    --skip-vep                 Skip VEP annotation (use legacy snpEff mode)
+    --shared-ref-dir DIR       Shared reference root (default: /data/reference)
     -h, --help                 Show this help message
 
 Example:
     $0 -w 2601 -s Sample_A10
     $0 --work-dir 2601 --sample Sample_A10 --cleanup
+    $0 -w 2601 -s Sample_A10 --aligner bwa-mem2 --variant-caller deepvariant
 
 Directory Structure:
     <data-dir>/
@@ -48,6 +53,10 @@ DATA_DIR="$(pwd)/data"
 REF_DIR="$(pwd)/refs"
 CLEANUP=""
 SKIP_CNV=""
+ALIGNER="bwa-mem"
+VARIANT_CALLER="gatk"
+SKIP_VEP="true"
+SHARED_REF_DIR="/data/reference"
 
 # 파라미터 파싱
 while [[ $# -gt 0 ]]; do
@@ -75,6 +84,26 @@ while [[ $# -gt 0 ]]; do
         --skip-cnv)
             SKIP_CNV="--skip_cnv"
             shift
+            ;;
+        --aligner)
+            ALIGNER="$2"
+            shift 2
+            ;;
+        --variant-caller)
+            VARIANT_CALLER="$2"
+            shift 2
+            ;;
+        --skip-vep)
+            SKIP_VEP="true"
+            shift
+            ;;
+        --no-skip-vep)
+            SKIP_VEP="false"
+            shift
+            ;;
+        --shared-ref-dir)
+            SHARED_REF_DIR="$2"
+            shift 2
             ;;
         -h|--help)
             usage
@@ -134,6 +163,10 @@ echo "  Data Directory: ${DATA_DIR}"
 echo "  Reference Directory: ${REF_DIR}"
 echo "  Cleanup: ${CLEANUP:-disabled}"
 echo "  Skip CNV: $([ -n "$SKIP_CNV" ] && echo "enabled" || echo "disabled")"
+echo "  Aligner: ${ALIGNER}"
+echo "  Variant Caller: ${VARIANT_CALLER}"
+echo "  VEP Annotation: $([ "$SKIP_VEP" = "true" ] && echo "disabled (snpEff)" || echo "enabled")"
+echo "  Shared Ref Dir: ${SHARED_REF_DIR}"
 echo ""
 
 # Docker 이미지 확인
@@ -150,6 +183,7 @@ echo ""
 
 # Docker 컨테이너 실행 (root로 실행 후 출력 파일 소유권 수정)
 # nextflow.config가 projectDir/../data/refs, data/bed 경로 사용 → /app/data 마운트 필요
+# /data/reference 마운트: data/refs 내 심볼릭 링크 대상 경로 접근을 위해 필요
 docker run --rm -t \
     -v "${DATA_DIR}/fastq:/data/fastq:ro" \
     -v "${DATA_DIR}/analysis:/data/analysis" \
@@ -157,6 +191,8 @@ docker run --rm -t \
     -v "${DATA_DIR}/log:/data/log" \
     -v "${DATA_DIR}/data:/app/data:ro" \
     -v "${DATA_DIR}/bin:/app/bin:ro" \
+    -v "${SHARED_REF_DIR}:${SHARED_REF_DIR}:ro" \
+    -v /var/run/docker.sock:/var/run/docker.sock \
     -e NXF_OPTS="-Xms1g -Xmx4g" \
     -e NXF_CACHE_DIR="/data/analysis/${WORK_DIR}/${SAMPLE_NAME}/.nextflow" \
     carrier-screening:latest \
@@ -166,6 +202,9 @@ docker run --rm -t \
             -ansi-log false \
             -resume \
             --fastq_dir /data/fastq/${WORK_DIR}/${SAMPLE_NAME} \
+            --aligner ${ALIGNER} \
+            --variant_caller ${VARIANT_CALLER} \
+            --skip_vep ${SKIP_VEP} \
             ${SKIP_CNV} \
             --outdir /data/analysis/${WORK_DIR}/${SAMPLE_NAME} \
             --output_dir /data/output/${WORK_DIR}/${SAMPLE_NAME} \
