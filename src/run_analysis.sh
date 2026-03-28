@@ -259,6 +259,8 @@ docker run --rm -t \
             --ref_dict ${DATA_DIR}/data/refs/GRCh38.dict \
             --ref_bwa_indices ${DATA_DIR}/data/refs/bwa_index \
             --backbone_bed ${DATA_DIR}/data/bed/Twist_Exome2.0_plus_Comprehensive_Exome_Spikein_targets_covered_annotated_hg38.bed \
+            --backbone_bed_gz ${DATA_DIR}/data/bed/Twist_Exome2.0_plus_Comprehensive_Exome_Spikein_targets_covered_annotated_hg38.bed.gz \
+            --backbone_bed_tbi ${DATA_DIR}/data/bed/Twist_Exome2.0_plus_Comprehensive_Exome_Spikein_targets_covered_annotated_hg38.bed.gz.tbi \
             --vep_cache_dir ${DATA_DIR}/data/refs/vep_cache \
             --dark_genes_plus_bed ${DATA_DIR}/data/bed/dark_genes_plus.bed \
             --hba_bed ${DATA_DIR}/data/bed/hba_targets.bed \

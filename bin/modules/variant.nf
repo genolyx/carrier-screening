@@ -164,56 +164,48 @@ process CALL_VARIANTS_STRELKA2 {
     tuple val(sample_id), path(bam), path(bai)
     path ref_fasta
     path ref_fai
-    path backbone_bed
+    path backbone_bed_gz
+    path backbone_bed_tbi
     output:
     tuple val(sample_id), path("${sample_id}_filtered.vcf.gz"), path("${sample_id}_filtered.vcf.gz.tbi"), emit: vcf
     script:
     """
     export TMPDIR=\$PWD
-    export CONDA_PKGS_DIRS=\$PWD/.cache/micromamba_pkgs
-    export MAMBA_ROOT_PREFIX=\$PWD/micromamba
-    mkdir -p \$CONDA_PKGS_DIRS \$MAMBA_ROOT_PREFIX
-    
-    if command -v curl >/dev/null 2>&1; then
-        curl -k -L -o cacert.pem https://curl.se/ca/cacert.pem
-        [ ! -f "micromamba_bin" ] && curl -k -L -o micromamba_bin https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-linux-64
-    else
-        wget -q --no-check-certificate https://curl.se/ca/cacert.pem || true
-        [ ! -f "micromamba_bin" ] && wget -qO micromamba_bin https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-linux-64
-    fi
-    
-    export SSL_CERT_FILE=\$PWD/cacert.pem
-    export MAMBA_SSL_VERIFY=false
-    chmod +x micromamba_bin
-    
-    # Install Strelka2 and bgzip/tabix (htslib)
-    [ -f micromamba_bin ] && ./micromamba_bin create -r \$MAMBA_ROOT_PREFIX -p ./env -c bioconda -c conda-forge strelka=2.9.10 htslib bcftools -y || true
-    export PATH=\$PWD/env/bin:\$PATH
+    # Use strelka's bundled bgzip and tabix (no external install needed)
+    export PATH=/usr/local/share/strelka-2.9.10-1/libexec:\$PATH
 
     # Step 1: Configure Strelka2 for germline WES
     # --exome flag adjusts the statistical model for non-uniform WES coverage
+    # --callRegions requires a bgzip+tabix .bed.gz file (staged alongside .tbi)
     configureStrelkaGermlineWorkflow.py \\
         --bam ${bam} \\
         --referenceFasta ${ref_fasta} \\
-        --callRegions ${backbone_bed}.gz \\
+        --callRegions ${backbone_bed_gz} \\
         --exome \\
         --runDir strelka_run
 
     # Step 2: Run Strelka2 workflow
     python2 strelka_run/runWorkflow.py -m local -j ${task.cpus}
 
-    # Step 3: Merge SNVs and Indels into a single VCF, keep PASS only
-    bcftools concat -a \\
-        strelka_run/results/variants/variants.vcf.gz \\
-        strelka_run/results/variants/genome.vcf.gz \\
-        2>/dev/null || \\
-    cp strelka_run/results/variants/variants.vcf.gz ${sample_id}_strelka_raw.vcf.gz
+    # Step 3: Filter PASS variants using Python (bcftools not in strelka container)
+    # Write plain VCF first — Python gzip != BGZF; bgzip must compress for tabix
+    python2 -c "
+import gzip, sys
+fin  = gzip.open('strelka_run/results/variants/variants.vcf.gz', 'rb')
+fout = open('${sample_id}_filtered_tmp.vcf', 'wb')
+for line in fin:
+    if line.startswith(b'#') or line.split(b'\\t')[6] == b'PASS':
+        fout.write(line)
+fin.close()
+fout.close()
+"
 
-    # Strelka2 outputs SNVs in variants.vcf.gz; use that as primary output
-    bcftools view -f PASS \\
-        -O z -o ${sample_id}_filtered.vcf.gz \\
-        strelka_run/results/variants/variants.vcf.gz
-    bcftools index --tbi ${sample_id}_filtered.vcf.gz
+    # Step 4: Compress with bundled bgzip (produces BGZF required by tabix)
+    bgzip ${sample_id}_filtered_tmp.vcf
+    mv ${sample_id}_filtered_tmp.vcf.gz ${sample_id}_filtered.vcf.gz
+
+    # Step 5: Index using bundled tabix
+    tabix -p vcf ${sample_id}_filtered.vcf.gz
     """
 }
 

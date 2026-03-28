@@ -254,11 +254,13 @@ workflow {
 
         } else if (params.variant_caller == 'strelka2') {
             // Strelka2: built-in Random Forest filter, no VariantFiltration needed
+            // --callRegions requires a bgzip+tabix .bed.gz file
             CALL_VARIANTS_STRELKA2(
                 bam_ch,
                 ref_fasta,
                 ref_fai,
-                file(params.backbone_bed)
+                file(params.backbone_bed_gz),
+                file(params.backbone_bed_tbi)
             )
             vcf_ch = CALL_VARIANTS_STRELKA2.out.vcf
 
