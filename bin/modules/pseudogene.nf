@@ -15,6 +15,9 @@ process PARAPHASE_RUN {
     script:
     """
     export TMPDIR=\$PWD
+    export HOME=\$PWD
+    export PIP_CACHE_DIR=\$PWD/.cache/pip
+    export XDG_CACHE_HOME=\$PWD/.cache/xdg
     export PATH=\$PWD:\$PATH
     
     # Use SHARED cache for packages (speed up)
@@ -26,6 +29,7 @@ process PARAPHASE_RUN {
     # Fix: Create directories to ensure they exist and are writable
     mkdir -p \$CONDA_PKGS_DIRS
     mkdir -p \$MAMBA_ROOT_PREFIX
+    mkdir -p \$PIP_CACHE_DIR \$XDG_CACHE_HOME
 
     # Fix: Install SSL certs for Micromamba
     wget -q --no-check-certificate https://curl.se/ca/cacert.pem || true
@@ -40,13 +44,16 @@ process PARAPHASE_RUN {
     # Fix: Disable SSL verify to bypass missing CA certs
     export MAMBA_SSL_VERIFY=false
     
-    # Create temp environment with dependencies from Bioconda
-    [ -f micromamba_bin ] && ./micromamba_bin create -r \$MAMBA_ROOT_PREFIX -p ./env -c bioconda -c conda-forge python=3.9 pip samtools=1.16.1 minimap2=2.24 -y || true
-    
+    # Create temp environment with dependencies from Bioconda (-resume may reuse ./env)
+    if [ -f micromamba_bin ] && [ ! -x ./env/bin/python ]; then
+        ./micromamba_bin create -r \$MAMBA_ROOT_PREFIX -p ./env -c bioconda -c conda-forge python=3.9 pip samtools=1.16.1 minimap2=2.24 -y
+    fi
+    [ -x ./env/bin/python ] || { echo "ERROR: micromamba env missing"; exit 1; }
+
     export PATH=\$PWD/env/bin:\$PATH
 
-    # Install latest Paraphase via pip (supports --targeted)
-    pip install paraphase --upgrade
+    # Install into conda env only (plain pip hits image Python 3.10 + HOME=/ -> /.local Permission denied under NXF_DOCKER_TASK_USER)
+    ./env/bin/python -m pip install --upgrade --no-cache-dir paraphase
 
     # Fix: Symlink BAM and COPY index to ensure perfect timestamp relationship
     # Using local names avoids confusion
@@ -54,7 +61,7 @@ process PARAPHASE_RUN {
     cp ${bai} input.bam.bai
 
     # Debug: Check pysam access and list supported genes
-    python3 -c "
+    ./env/bin/python -c "
 import pysam
 import os
 import paraphase
@@ -108,7 +115,7 @@ except Exception as e:
     print(f'DEBUG: Pysam error: {e}')
     "
 
-    paraphase \
+    ./env/bin/paraphase \
         -b input.bam \
         -r ${ref_fasta} \
         -g smn1,gba,pms2,strc,rccx,cyp21a2,vWF,hba1 \
@@ -151,34 +158,10 @@ process SMACA_RUN {
 
     script:
     """
-    # --- Dependency Setup (Micromamba) ---
+    # Biocontainers smaca 이미지에 바이너리 포함; micromamba+wget은 슬림 이미지에 없어 실패함
     export TMPDIR=\$PWD
-    export PATH=\$PWD:\$PATH
-    
-    # Use SHARED cache for packages (speed up)
-    export CONDA_PKGS_DIRS=\$PWD/.cache/micromamba_pkgs
-    
-    # Keep runtime env isolated
-    export MAMBA_ROOT_PREFIX=\$PWD/micromamba
+    export HOME=\$PWD
 
-    mkdir -p \$CONDA_PKGS_DIRS
-    mkdir -p \$MAMBA_ROOT_PREFIX
-
-    # SSL Fix
-    wget -q --no-check-certificate https://curl.se/ca/cacert.pem || true
-    export SSL_CERT_FILE=\$PWD/cacert.pem
-    export MAMBA_SSL_VERIFY=false
-
-    # Install Micromamba & SMAca
-    if [ ! -f "micromamba_bin" ]; then
-        wget -qO micromamba_bin https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-linux-64 \
-            && chmod +x micromamba_bin || true
-    fi
-    
-    [ -f micromamba_bin ] && ./micromamba_bin create -r \$MAMBA_ROOT_PREFIX -p ./env -c bioconda -c conda-forge smaca -y || true
-    export PATH=\$PWD/env/bin:\$PATH
-
-    # SMAca v1.2.3 usage
     if [ ! -f "${bam}.bai" ]; then
         ln -s ${bai} ${bam}.bai
     fi
@@ -208,6 +191,9 @@ process PARAPHASE_RESCUE {
     script:
     """
     export TMPDIR=\$PWD
+    export HOME=\$PWD
+    export PIP_CACHE_DIR=\$PWD/.cache/pip
+    export XDG_CACHE_HOME=\$PWD/.cache/xdg
     export PATH=\$PWD:\$PATH
     
     # Use SHARED cache for packages (speed up)
@@ -219,6 +205,7 @@ process PARAPHASE_RESCUE {
     # Fix: Create directories to ensure they exist and are writable
     mkdir -p \$CONDA_PKGS_DIRS
     mkdir -p \$MAMBA_ROOT_PREFIX
+    mkdir -p \$PIP_CACHE_DIR \$XDG_CACHE_HOME
 
     # Fix: Install SSL certs for Micromamba
     wget -q --no-check-certificate https://curl.se/ca/cacert.pem || true
@@ -233,13 +220,15 @@ process PARAPHASE_RESCUE {
     # Fix: Disable SSL verify to bypass missing CA certs
     export MAMBA_SSL_VERIFY=false
     
-    # Create temp environment with dependencies from Bioconda
-    [ -f micromamba_bin ] && ./micromamba_bin create -r \$MAMBA_ROOT_PREFIX -p ./env -c bioconda -c conda-forge python=3.9 pip samtools=1.16.1 minimap2=2.24 -y || true
-    
+    # Create temp environment with dependencies from Bioconda (-resume may reuse ./env)
+    if [ -f micromamba_bin ] && [ ! -x ./env/bin/python ]; then
+        ./micromamba_bin create -r \$MAMBA_ROOT_PREFIX -p ./env -c bioconda -c conda-forge python=3.9 pip samtools=1.16.1 minimap2=2.24 -y
+    fi
+    [ -x ./env/bin/python ] || { echo "ERROR: micromamba env missing"; exit 1; }
+
     export PATH=\$PWD/env/bin:\$PATH
 
-    # Install latest Paraphase via pip
-    pip install paraphase --upgrade
+    ./env/bin/python -m pip install --upgrade --no-cache-dir paraphase
 
     # --- PARAPHASE PATCHING FOR RESCUE MODE ---
     # Paraphase v3.4.0 hardcodes min_mapq=50 for realignment and min_mapq=5 for phasing.
@@ -332,7 +321,7 @@ for file_path in files_to_patch:
 
 print("Successfully patched phaser.py with safe Python script")
 EOF
-        python3 patch_phaser.py
+        ./env/bin/python patch_phaser.py
         
         echo "Patched phaser.py (min_mapq=5 -> 0, disabled coverage check, forced pileup min_mapq=0)"
     else
@@ -424,10 +413,10 @@ with open("rescue_config.yaml", "w") as f:
 EOF
 
     # Run config generation
-    python3 generate_config.py
+    ./env/bin/python generate_config.py
 
     # Determine genes to run from the generated config
-    GENES_TO_RUN=\$(python3 -c "import yaml; print(','.join(yaml.safe_load(open('rescue_config.yaml')).keys()))")
+    GENES_TO_RUN=\$(./env/bin/python -c "import yaml; print(','.join(yaml.safe_load(open('rescue_config.yaml')).keys()))")
     
     echo "Starting Paraphase Rescue for genes: \$GENES_TO_RUN"
     
@@ -441,7 +430,7 @@ EOF
     fi
 
     # Run Paraphase with Custom Config and Patched Code
-    paraphase \
+    ./env/bin/paraphase \
         -b ${bam} \
         -r ${ref_fasta} \
         -o . \

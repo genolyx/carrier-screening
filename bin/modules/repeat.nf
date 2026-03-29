@@ -15,35 +15,33 @@ process EXPANSION_HUNTER {
 
     script:
     """
-    # --- Dependency Setup (Micromamba) ---
+    # Micromamba + NXF_DOCKER_TASK_USER: HOME 없으면 /.conda 실패, || true 는 samtools 미설치를 숨김
     export TMPDIR=\$PWD
+    export HOME=\$PWD
+    export PIP_CACHE_DIR=\$PWD/.cache/pip
+    export XDG_CACHE_HOME=\$PWD/.cache/xdg
     export PATH=\$PWD:\$PATH
-    
-    # Use SHARED cache for packages (speed up)
     export CONDA_PKGS_DIRS=\$PWD/.cache/micromamba_pkgs
-    
-    # Keep runtime env isolated
     export MAMBA_ROOT_PREFIX=\$PWD/micromamba
     
-    # Ensure cache dir exists
-    mkdir -p \$CONDA_PKGS_DIRS
-    mkdir -p \$MAMBA_ROOT_PREFIX
+    mkdir -p \$CONDA_PKGS_DIRS \$MAMBA_ROOT_PREFIX \$PIP_CACHE_DIR \$XDG_CACHE_HOME
 
-    # SSL Fix
     wget -q --no-check-certificate https://curl.se/ca/cacert.pem || true
     export SSL_CERT_FILE=\$PWD/cacert.pem
     export MAMBA_SSL_VERIFY=false
 
-    # Install Micromamba & ExpansionHunter
     if [ ! -f "micromamba_bin" ]; then
         wget -qO micromamba_bin https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-linux-64 \
             && chmod +x micromamba_bin || true
     fi
     
-    # Reverted: 'reviewer' removed from conda to avoid dependency conflicts (Boost/fmt versions)
-    # Downgraded: expansionhunter=4.0.2 (Stable, Compatible with REViewer)
-    [ -f micromamba_bin ] && ./micromamba_bin create -r \$MAMBA_ROOT_PREFIX -p ./env -c bioconda -c conda-forge expansionhunter=4.0.2 samtools -y || true
-    export PATH=\$PWD/env/bin:\$PATH
+    if [ -f micromamba_bin ] && [ ! -x ./env/bin/samtools ]; then
+        ./micromamba_bin create -r \$MAMBA_ROOT_PREFIX -p ./env -c bioconda -c conda-forge expansionhunter=4.0.2 samtools -y
+    fi
+    [ -x ./env/bin/samtools ] && [ -x ./env/bin/ExpansionHunter ] || { echo "ERROR: ExpansionHunter/samtools env missing"; exit 1; }
+
+    ST=\$PWD/env/bin/samtools
+    EH=\$PWD/env/bin/ExpansionHunter
 
     # Install REViewer manually (Standalone Binary)
     if [ ! -f "REViewer" ]; then
@@ -60,7 +58,7 @@ process EXPANSION_HUNTER {
 
     # --- Auto-Sex Detection ---
     # Heuristic: Ratio of aligned reads on chrY vs chrX
-    samtools idxstats ${bam} > idxstats.txt
+    \$ST idxstats ${bam} > idxstats.txt
     
     # Extract mapped read counts (Column 3) for chrX and chrY
     read_x=\$(grep -w "chrX" idxstats.txt | cut -f3)
@@ -83,7 +81,7 @@ process EXPANSION_HUNTER {
 
     # 1. Run ExpansionHunter
     # v4.0.2 automatically generates realigned BAMs (no flag needed)
-    ExpansionHunter \\
+    \$EH \\
         --reads ${bam} \\
         --reference ${ref_fasta} \\
         --variant-catalog ${variant_catalog} \\
@@ -96,8 +94,8 @@ process EXPANSION_HUNTER {
         echo "Generating REViewer visualization for FMR1..."
         
         # EH v4 output is sometimes unsorted. Sort it before indexing for REViewer.
-        samtools sort ${sample_id}_eh_realigned.bam -o ${sample_id}_eh_realigned.sorted.bam
-        samtools index ${sample_id}_eh_realigned.sorted.bam
+        \$ST sort ${sample_id}_eh_realigned.bam -o ${sample_id}_eh_realigned.sorted.bam
+        \$ST index ${sample_id}_eh_realigned.sorted.bam
         
         ./REViewer \\
             --reads ${sample_id}_eh_realigned.sorted.bam \\

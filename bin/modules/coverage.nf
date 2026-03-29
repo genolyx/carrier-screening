@@ -16,43 +16,43 @@ process DEPTH_ANALYSIS {
 
     script:
     """
-    # --- Dependency Setup (Micromamba) ---
+    # --- Micromamba (paraphase 컨테이너 + NXF_DOCKER_TASK_USER → HOME 필수)
     export TMPDIR=\$PWD
+    export HOME=\$PWD
+    export PIP_CACHE_DIR=\$PWD/.cache/pip
+    export XDG_CACHE_HOME=\$PWD/.cache/xdg
     export PATH=\$PWD:\$PATH
-    
-    # Use SHARED cache for packages (speed up)
     export CONDA_PKGS_DIRS=\$PWD/.cache/micromamba_pkgs
     export MAMBA_ROOT_PREFIX=\$PWD/micromamba
     
-    mkdir -p \$CONDA_PKGS_DIRS \$MAMBA_ROOT_PREFIX
+    mkdir -p \$CONDA_PKGS_DIRS \$MAMBA_ROOT_PREFIX \$PIP_CACHE_DIR \$XDG_CACHE_HOME
 
-    # SSL Fix
     wget -q --no-check-certificate https://curl.se/ca/cacert.pem || true
     export SSL_CERT_FILE=\$PWD/cacert.pem
     export MAMBA_SSL_VERIFY=false
 
-    # Install Micromamba & Tools
     if [ ! -f "micromamba_bin" ]; then
         wget -qO micromamba_bin https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-linux-64 \
             && chmod +x micromamba_bin || true
     fi
     
-    # Create env with samtools and mosdepth
-    [ -f micromamba_bin ] && ./micromamba_bin create -r \$MAMBA_ROOT_PREFIX -p ./env -c bioconda -c conda-forge samtools=1.16.1 mosdepth=0.3.3 -y || true
-    export PATH=\$PWD/env/bin:\$PATH
+    if [ -f micromamba_bin ] && [ ! -x ./env/bin/samtools ]; then
+        ./micromamba_bin create -r \$MAMBA_ROOT_PREFIX -p ./env -c bioconda -c conda-forge samtools=1.16.1 mosdepth=0.3.3 -y
+    fi
+    [ -x ./env/bin/samtools ] && [ -x ./env/bin/mosdepth ] || { echo "ERROR: samtools/mosdepth env missing"; exit 1; }
+
+    ST=\$PWD/env/bin/samtools
+    MD=\$PWD/env/bin/mosdepth
     
     # --- Analysis ---
 
-    # Fix: Symlink index for mosdepth/samtools (expects .bam.bai)
     if [ ! -f "${bam}.bai" ]; then
         ln -s ${bai} ${bam}.bai
     fi
 
-    # 1. Basic Bedcov (Keep existing)
-    samtools bedcov ${bed} ${bam} > ${sample_id}_target_coverage.txt
+    \$ST bedcov ${bed} ${bam} > ${sample_id}_target_coverage.txt
 
-    # 2. Mosdepth QC (Targeted)
-    mosdepth --by ${bed} --thresholds 20,50,100 ${sample_id} ${bam}
+    \$MD --by ${bed} --thresholds 20,50,100 ${sample_id} ${bam}
 
     # 3. Parse Summary for User
     echo "Sample: ${sample_id}" > ${sample_id}_qc_metrics.txt
@@ -74,17 +74,15 @@ process DEPTH_ANALYSIS {
     echo "Region\\tMean_Depth\\tMax_Depth\\tPercent_Covered" > ${sample_id}_intron_depth.txt
     
     while read -r chrom start end name; do
-        # Calculate depth stats for this region
-        samtools depth -r "\$chrom:\$start-\$end" -a ${bam} | \\
+        \$ST depth -r "\$chrom:\$start-\$end" -a ${bam} | \\
         awk -v name="\$name" '{sum+=\$3; if(\$3>0) covered++; if(\$3>max) max=\$3; count++} END {if (count>0) print name "\t" sum/count "\t" max "\t" (covered/count)*100; else print name "\t0\t0\t0"}' >> ${sample_id}_intron_depth.txt
     done < ${dark_genes_bed}
 
     # Specific Loci Checks (Alpha / SMA)
     echo "\\n[Specific Loci Verification]" >> ${sample_id}_intron_depth.txt
     
-    # Calculate Median Depth using awk/sort
-    ALPHA_MED=\$(samtools depth -r "chr16:164000-183000" -a ${bam} | cut -f3 | sort -n | awk '{a[i++]=\$1;} END {if (i==0) print 0; else print a[int(i/2)];}')
-    SMA_MED=\$(samtools depth -r "chr5:70920000-71000000" -a ${bam} | cut -f3 | sort -n | awk '{a[i++]=\$1;} END {if (i==0) print 0; else print a[int(i/2)];}')
+    ALPHA_MED=\$(\$ST depth -r "chr16:164000-183000" -a ${bam} | cut -f3 | sort -n | awk '{a[i++]=\$1;} END {if (i==0) print 0; else print a[int(i/2)];}')
+    SMA_MED=\$(\$ST depth -r "chr5:70920000-71000000" -a ${bam} | cut -f3 | sort -n | awk '{a[i++]=\$1;} END {if (i==0) print 0; else print a[int(i/2)];}')
     
     echo "Alpha-Cluster Median Depth: \$ALPHA_MED" >> ${sample_id}_intron_depth.txt
     echo "SMA Locus Median Depth: \$SMA_MED" >> ${sample_id}_intron_depth.txt

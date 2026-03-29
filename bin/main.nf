@@ -396,10 +396,10 @@ workflow.onComplete {
                 cp -r ${params.outdir}/snapshots/* ${snapshotsOut}/ 2>/dev/null || true
             fi
             if [ -d "${params.outdir}/variant" ]; then
-                # Copy VEP-annotated VCF if available, otherwise raw filtered VCF
-                cp ${params.outdir}/variant/*_annotated.vcf.gz* ${vcfOut}/ 2>/dev/null || \
+                # Copy annotated + filtered VCFs (separate cp: both can coexist after caller-specific naming)
+                cp ${params.outdir}/variant/*_annotated.vcf.gz* ${vcfOut}/ 2>/dev/null || true
                 cp ${params.outdir}/variant/*_filtered.vcf.gz* ${vcfOut}/ 2>/dev/null || true
-                # Also copy VEP HTML summary if available
+                # VEP HTML summaries (e.g. *_deepvariant_vep_summary.html)
                 cp ${params.outdir}/variant/*_vep_summary.html ${vcfOut}/ 2>/dev/null || true
             fi
             if [ -d "${params.outdir}/cnv/segments" ]; then

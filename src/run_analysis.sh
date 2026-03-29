@@ -31,6 +31,11 @@ Options:
     --fresh                    Delete sample work/ and .nextflow cache, then run (no -resume)
     -h, --help                 Show this help message
 
+Environment:
+    CHOWN_SPEC                 Numeric uid:gid for output ownership (default: \$(id -u):\$(id -g); e.g. ken:genolyx on host)
+                               Task containers use NXF_DOCKER_TASK_USER. After each run, the whole order dir under analysis/output/log
+                               gets chown + group write (g+rwX) + setgid on directories so genolyx (or CHOWN_SPEC gid) can add samples without 755-only-owner issues.
+
 Example:
     $0 -w 2601 -s Sample_A10
     $0 --work-dir 2601 --sample Sample_A10 --cleanup
@@ -151,11 +156,93 @@ if [ "$R1_COUNT" -eq 0 ] || [ "$R2_COUNT" -eq 0 ]; then
     exit 1
 fi
 
-# 출력 디렉토리 생성 (Nextflow .nextflow 캐시용)
-mkdir -p "${DATA_DIR}/analysis/${WORK_DIR}/${SAMPLE_NAME}"
-mkdir -p "${DATA_DIR}/analysis/${WORK_DIR}/${SAMPLE_NAME}/.nextflow"
-mkdir -p "${DATA_DIR}/output/${WORK_DIR}/${SAMPLE_NAME}"
-mkdir -p "${DATA_DIR}/log/${WORK_DIR}/${SAMPLE_NAME}"
+# 결과물 소유자: 기본은 실행 사용자(uid:gid)
+CHOWN_SPEC="${CHOWN_SPEC:-$(id -u):$(id -g)}"
+
+# analysis|output|log/<WORK_DIR> 전체: chown CHOWN_SPEC + 그룹 rwx + 디렉터리 setgid (동일 gid가 새 항목에 상속)
+# $1 = quiet 일 때 진행 메시지 생략 (ensure_sample_output_dirs 직후 등)
+repair_order_tree_permissions() {
+    local quiet="${1:-}" base t any=0
+    for base in analysis output log; do
+        t="${DATA_DIR}/${base}/${WORK_DIR}"
+        [ -d "$t" ] || continue
+        any=1
+    done
+    [ "$any" -eq 1 ] || return 0
+
+    if command -v docker >/dev/null 2>&1 && id -nG | grep -qw docker && docker info &>/dev/null; then
+        if docker run --rm --platform linux/amd64 \
+            -e WORK_DIR="$WORK_DIR" \
+            -e CHOWN_SPEC="$CHOWN_SPEC" \
+            -v "${DATA_DIR}/analysis:/fa" \
+            -v "${DATA_DIR}/output:/fo" \
+            -v "${DATA_DIR}/log:/fl" \
+            alpine:3.20 \
+            sh -c 'for base in /fa /fo /fl; do
+                t="$base/$WORK_DIR"
+                [ -d "$t" ] || continue
+                chown -R "$CHOWN_SPEC" "$t"
+                chmod -R g+rwX "$t"
+                find "$t" -type d -exec chmod g+s {} + 2>/dev/null || true
+            done'; then
+            [ "$quiet" = quiet ] || echo "  Order trees (${WORK_DIR}): ${CHOWN_SPEC}, g+rwX, setgid on dirs (docker)"
+            return 0
+        fi
+    fi
+    if sudo -n true 2>/dev/null; then
+        for base in analysis output log; do
+            t="${DATA_DIR}/${base}/${WORK_DIR}"
+            [ -d "$t" ] || continue
+            sudo chown -R "${CHOWN_SPEC}" "$t" 2>/dev/null || true
+            sudo chmod -R g+rwX "$t" 2>/dev/null || true
+            sudo find "$t" -type d -exec chmod g+s {} + 2>/dev/null || true
+        done
+        [ "$quiet" = quiet ] || echo "  Order trees (${WORK_DIR}): ${CHOWN_SPEC}, g+rwX, setgid on dirs (sudo)"
+        return 0
+    fi
+    for base in analysis output log; do
+        t="${DATA_DIR}/${base}/${WORK_DIR}"
+        [ -d "$t" ] || continue
+        chmod -R g+rwX "$t" 2>/dev/null || true
+        find "$t" -type d -exec chmod g+s {} + 2>/dev/null || true
+    done
+    [ "$quiet" = quiet ] || echo -e "${YELLOW}  Order trees: collaborative chmod only (for chown use docker group or passwordless sudo).${NC}"
+}
+
+# 출력 디렉토리 생성. 과거 Docker가 analysis/<work>/ 를 root로 만들면 일반 사용자 mkdir 불가 → docker로 보정
+ensure_sample_output_dirs() {
+    local a o l
+    a="${DATA_DIR}/analysis/${WORK_DIR}/${SAMPLE_NAME}"
+    o="${DATA_DIR}/output/${WORK_DIR}/${SAMPLE_NAME}"
+    l="${DATA_DIR}/log/${WORK_DIR}/${SAMPLE_NAME}"
+    if mkdir -p "${a}/.nextflow" "$o" "$l" 2>/dev/null; then
+        repair_order_tree_permissions quiet
+        return 0
+    fi
+    if ! command -v docker >/dev/null 2>&1 || ! docker info &>/dev/null; then
+        echo -e "${RED}Error: cannot create sample directories (permission denied).${NC}"
+        echo "  e.g. sudo chown -R \"\$(id -u):\$(id -g)\" \"${DATA_DIR}/analysis/${WORK_DIR}\" \"${DATA_DIR}/output/${WORK_DIR}\" \"${DATA_DIR}/log/${WORK_DIR}\""
+        exit 1
+    fi
+    echo -e "${YELLOW}Creating output dirs via docker (host mkdir failed, e.g. parent dir owned by root)...${NC}"
+    docker run --rm --platform linux/amd64 \
+        -e WORK_DIR="$WORK_DIR" \
+        -e SAMPLE_NAME="$SAMPLE_NAME" \
+        -e CHOWN_SPEC="$CHOWN_SPEC" \
+        -v "${DATA_DIR}/analysis:/fa" \
+        -v "${DATA_DIR}/output:/fo" \
+        -v "${DATA_DIR}/log:/fl" \
+        alpine:3.20 \
+        sh -c 'mkdir -p "/fa/${WORK_DIR}/${SAMPLE_NAME}/.nextflow" "/fo/${WORK_DIR}/${SAMPLE_NAME}" "/fl/${WORK_DIR}/${SAMPLE_NAME}" && \
+            for base in /fa /fo /fl; do \
+                t="$base/${WORK_DIR}"; \
+                [ -d "$t" ] || continue; \
+                chown -R "$CHOWN_SPEC" "$t"; \
+                chmod -R g+rwX "$t"; \
+                find "$t" -type d -exec chmod g+s {} + 2>/dev/null || true; \
+            done'
+}
+ensure_sample_output_dirs
 
 echo "======================================"
 echo "Carrier Screening Pipeline - Sample Analysis"
@@ -174,6 +261,7 @@ echo "  Variant Caller: ${VARIANT_CALLER}"
 echo "  VEP Annotation: $([ "$SKIP_VEP" = "true" ] && echo "disabled (snpEff)" || echo "enabled")"
 echo "  Shared Ref Dir: ${SHARED_REF_DIR}"
 echo "  Fresh run: $([ -n "$FRESH" ] && echo "yes (work + .nextflow cleared, no -resume)" || echo "no")"
+echo "  File ownership (CHOWN_SPEC): ${CHOWN_SPEC}"
 echo ""
 
 ANALYSIS_SAMPLE_DIR="${DATA_DIR}/analysis/${WORK_DIR}/${SAMPLE_NAME}"
@@ -218,7 +306,7 @@ fi
 echo -e "${YELLOW}Starting analysis...${NC}"
 echo ""
 
-# Docker 컨테이너 실행 (root로 실행 후 출력 파일 소유권 수정)
+# Docker 컨테이너 실행 (태스크는 NXF_DOCKER_TASK_USER, 종료 시 docker chown)
 # nextflow.config가 projectDir/../data/refs, data/bed 경로 사용 → /app/data 마운트 필요
 # /data/reference 마운트: data/refs 내 심볼릭 링크 대상 경로 접근을 위해 필요
 # HOST_WORK_DIR: Nextflow이 태스크 컨테이너에 work dir를 마운트할 때 호스트 경로를 써야 합니다.
@@ -230,7 +318,20 @@ HOST_WORK_DIR="${DATA_DIR}/analysis/${WORK_DIR}/${SAMPLE_NAME}/work"
 # Nextflow (docker.enabled=true) can spawn task containers via the host daemon.
 DOCKER_BIN="$(which docker)"
 
+# 비-root 로 Nextflow를 띄우면 work/ 해시 디렉터리도 동일 uid 로 생성되어
+# NXF_DOCKER_TASK_USER 태스크 컨테이너와 쓰기 권한이 맞음. (root 메인 + 1000 태스크면 .command.trace Permission denied)
+# passwd 에 없으면 HOME 이 비어 Nextflow가 잘못된 경로에 쓰므로 HOME/NXF_HOME 고정.
+# docker.sock 이 root:docker 이면 컨테이너에 docker GID 보조 그룹 필요.
+DOCKER_GROUP_ARGS=()
+if DOCKER_SOCK_GID="$(getent group docker 2>/dev/null | cut -d: -f3)" && [ -n "${DOCKER_SOCK_GID}" ]; then
+    DOCKER_GROUP_ARGS=(--group-add "${DOCKER_SOCK_GID}")
+fi
+
 docker run --rm -t \
+    -u "${CHOWN_SPEC}" \
+    "${DOCKER_GROUP_ARGS[@]}" \
+    -e HOME=/tmp \
+    -e NXF_HOME=/tmp/.nextflow \
     -v "${DATA_DIR}/fastq:/data/fastq:ro" \
     -v "${DATA_DIR}/analysis:/data/analysis" \
     -v "${DATA_DIR}/output:/data/output" \
@@ -248,6 +349,7 @@ docker run --rm -t \
     -e NXF_OPTS="-Xms1g -Xmx4g" \
     -e NXF_CACHE_DIR="${DATA_DIR}/analysis/${WORK_DIR}/${SAMPLE_NAME}/.nextflow" \
     -e NXF_DATA_DIR="${DATA_DIR}" \
+    -e NXF_DOCKER_TASK_USER="${CHOWN_SPEC}" \
     carrier-screening:latest \
     bash -c "
         cd ${DATA_DIR}/analysis/${WORK_DIR}/${SAMPLE_NAME} && \
@@ -287,10 +389,7 @@ echo ""
 if [ $EXIT_CODE -eq 0 ]; then
     echo -e "${GREEN}✅ Analysis completed successfully!${NC}"
     echo ""
-    # Docker가 root로 생성한 파일 소유권 수정 (passwordless sudo 가능 시)
-    if sudo -n true 2>/dev/null; then
-        sudo chown -R "$(id -u):$(id -g)" "${DATA_DIR}/analysis/${WORK_DIR}/${SAMPLE_NAME}" "${DATA_DIR}/output/${WORK_DIR}/${SAMPLE_NAME}" "${DATA_DIR}/log/${WORK_DIR}/${SAMPLE_NAME}" 2>/dev/null || true
-    fi
+    repair_order_tree_permissions
     echo "Results:"
     echo "  Output: ${DATA_DIR}/output/${WORK_DIR}/${SAMPLE_NAME}"
     echo "  Logs: ${DATA_DIR}/log/${WORK_DIR}/${SAMPLE_NAME}"
@@ -309,6 +408,7 @@ if [ $EXIT_CODE -eq 0 ]; then
 else
     echo -e "${RED}❌ Analysis failed with exit code: ${EXIT_CODE}${NC}"
     echo ""
+    repair_order_tree_permissions || true
     echo "Check logs:"
     echo "  ${DATA_DIR}/log/${WORK_DIR}/${SAMPLE_NAME}/nextflow.log"
     echo ""

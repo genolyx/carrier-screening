@@ -17,13 +17,16 @@ process FALLBACK_ANALYSIS {
 
     script:
     """
-    # --- Dependency Setup (Micromamba) ---
+    # --- Dependency Setup (Micromamba; NXF_DOCKER_TASK_USER 시 HOME 없으면 /.conda 오류)
     export TMPDIR=\$PWD
+    export HOME=\$PWD
+    export PIP_CACHE_DIR=\$PWD/.cache/pip
+    export XDG_CACHE_HOME=\$PWD/.cache/xdg
     export PATH=\$PWD:\$PATH
     export CONDA_PKGS_DIRS=\$PWD/.cache/micromamba_pkgs
     export MAMBA_ROOT_PREFIX=\$PWD/micromamba
     
-    mkdir -p \$CONDA_PKGS_DIRS \$MAMBA_ROOT_PREFIX
+    mkdir -p \$CONDA_PKGS_DIRS \$MAMBA_ROOT_PREFIX \$PIP_CACHE_DIR \$XDG_CACHE_HOME
 
     wget -q --no-check-certificate https://curl.se/ca/cacert.pem || true
     export SSL_CERT_FILE=\$PWD/cacert.pem
@@ -34,20 +37,26 @@ process FALLBACK_ANALYSIS {
             && chmod +x micromamba_bin || true
     fi
     
-    [ -f micromamba_bin ] && ./micromamba_bin create -r \$MAMBA_ROOT_PREFIX -p ./env -c bioconda -c conda-forge samtools=1.16.1 freebayes=1.3.6 -y || true
-    export PATH=\$PWD/env/bin:\$PATH
+    if [ -f micromamba_bin ] && [ ! -x ./env/bin/samtools ]; then
+        ./micromamba_bin create -r \$MAMBA_ROOT_PREFIX -p ./env -c bioconda -c conda-forge samtools=1.16.1 freebayes=1.3.6 -y
+    fi
+    [ -x ./env/bin/samtools ] && [ -x ./env/bin/freebayes ] && [ -x ./env/bin/python ] || { echo "ERROR: samtools/freebayes/python env missing"; exit 1; }
+
+    ST=\$PWD/env/bin/samtools
+    FB=\$PWD/env/bin/freebayes
+    PY=\$PWD/env/bin/python
     
     # --- HBA Analysis ---
     
     awk '\$1=="chr16" || \$1=="16"' ${backbone_bed} > chr16_targets.bed
     
-    samtools view -b -F 1024 ${bam} > no_dup.bam
-    samtools index no_dup.bam
+    \$ST view -b -F 1024 ${bam} > no_dup.bam
+    \$ST index no_dup.bam
     
-    samtools bedcov chr16_targets.bed no_dup.bam > chr16_cov.txt
-    samtools bedcov ${hba_bed} no_dup.bam > hba_cov.txt
+    \$ST bedcov chr16_targets.bed no_dup.bam > chr16_cov.txt
+    \$ST bedcov ${hba_bed} no_dup.bam > hba_cov.txt
 
-    freebayes \\
+    \$FB \\
         --fasta-reference ${ref_fasta} \\
         --region chr16:172000-178000 \\
         --min-mapping-quality 0 \\
@@ -57,7 +66,7 @@ process FALLBACK_ANALYSIS {
         no_dup.bam > ${sample_id}_hba_freebayes.vcf
 
     # Python HBA Analysis
-    python3 -c "
+    \$PY -c "
 import statistics
 import sys
 
@@ -129,11 +138,11 @@ with open('${sample_id}_hba_fallback.txt', 'w') as out:
     
     awk '\$1=="chr6" || \$1=="6"' ${backbone_bed} > chr6_targets.bed
 
-    samtools bedcov chr6_targets.bed no_dup.bam > chr6_cov.txt
-    samtools bedcov ${cyp21a2_bed} no_dup.bam > cyp21a2_cov.txt
+    \$ST bedcov chr6_targets.bed no_dup.bam > chr6_cov.txt
+    \$ST bedcov ${cyp21a2_bed} no_dup.bam > cyp21a2_cov.txt
 
     # Python CYP21A2 Analysis
-    python3 -c "
+    \$PY -c "
 import statistics
 
 def parse_bedcov(filename):
