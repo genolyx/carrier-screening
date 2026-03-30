@@ -40,6 +40,8 @@ include { MANTA_SV }                from './modules/sv'
 include { DEPTH_ANALYSIS }          from './modules/coverage'
 include { FALLBACK_ANALYSIS }       from './modules/fallback'
 include { HBA_PARALOG_PILEUP }      from './modules/hba_paralog'
+include { CYP21_PARALOG_PILEUP }    from './modules/cyp21_paralog'
+include { CYP21_HOTSPOT_PILEUP }    from './modules/cyp21_hotspot_pileup'
 include { GENERATE_VISUAL_EVIDENCE } from './modules/visualize'
 include { PREPARE_VIZ_RESOURCES }   from './modules/resources'
 
@@ -232,6 +234,21 @@ workflow {
         .map { sid, bam, bai, sites, py -> tuple(sid, bam, bai, sites, py) }
     HBA_PARALOG_PILEUP(hba_paralog_in)
 
+    cyp21_paralog_py = Channel.fromPath("${projectDir}/modules/cyp21_paralog_pileup.py", checkIfExists: true)
+    cyp21_paralog_in = bam_ch
+        .combine(Channel.value(file(params.cyp21_paralog_sites, checkIfExists: true)))
+        .combine(cyp21_paralog_py)
+        .map { sid, bam, bai, sites, py -> tuple(sid, bam, bai, sites, py) }
+    CYP21_PARALOG_PILEUP(cyp21_paralog_in)
+
+    cyp21_hotspot_py = Channel.fromPath("${projectDir}/modules/cyp21_hotspot_pileup.py", checkIfExists: true)
+    cyp21_hotspot_in = bam_ch
+        .combine(Channel.value(file(params.cyp21a2_hotspots, checkIfExists: true)))
+        .combine(cyp21_hotspot_py)
+        .combine(cyp21_paralog_py)
+        .map { sid, bam, bai, sites, hot_py, par_py -> tuple(sid, bam, bai, sites, hot_py, par_py) }
+    CYP21_HOTSPOT_PILEUP(cyp21_hotspot_in)
+
     // -------------------------------------------------------
     // 3. Track 2: Pseudogene Resolution
     // -------------------------------------------------------
@@ -336,6 +353,9 @@ workflow {
     manta_vcf_ch = MANTA_SV.out.vcf.map { it[1] }.collect()
     gcnv_vcf_ch  = params.skip_cnv ? Channel.value([]) : POSTPROCESS_GCNV.out.vcf.map { it[1] }.collect()
 
+    // Per-sample annotated (VEP) or filtered VCFs for CYP21A2 hotspot screening in the summary report
+    annotated_vcf_for_summary = params.backbone_bed ? annotated_vcf_ch.map { it[1] }.collect() : Channel.value([])
+
     GENERATE_SUMMARY_REPORT(
         manta_vcf_ch,
         gcnv_vcf_ch,
@@ -347,7 +367,11 @@ workflow {
         DEPTH_ANALYSIS.out.intron_report.collect(),
         GENERATE_VISUAL_EVIDENCE.out.snapshots.collect(),
         file(params.backbone_bed),
-        HBA_PARALOG_PILEUP.out.tsv.collect()
+        HBA_PARALOG_PILEUP.out.tsv.collect(),
+        CYP21_PARALOG_PILEUP.out.tsv.collect(),
+        CYP21_HOTSPOT_PILEUP.out.tsv.collect(),
+        file(params.cyp21a2_hotspots),
+        annotated_vcf_for_summary
     )
 }
 

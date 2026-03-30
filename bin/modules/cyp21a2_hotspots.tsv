@@ -1,0 +1,11 @@
+# CYP21A2 (NM_000500.9) — GRCh38 chr6 hotspot sites for summary report screening.
+# Coordinates from Ensembl variant_recoder (Mar 2026). VCF POS is 1-based.
+# Multiple HGVS names (e.g. p.I172N vs p.I173N) reflect literature/transcript numbering differences.
+id	label	chrom	pos	ref	alts	note
+IVS2-13	IVS2-13 / c.293-13C>G (intron 2 splice)	chr6	32039081	C	G	Common CAH splice mutation (often written IVS2-13A/C>G)
+I172N	p.I172N (c.515T>A)	chr6	32039423	T	A	Alternate transcript/protein numbering vs p.I173N
+I173N	p.I173N (c.518T>A)	chr6	32039426	T	A	NM_000500.9 missense (common p.I172N/I173N allele)
+V282L	p.V282L (c.844G>T or c.844G>C; often cited as p.V281L)	chr6	32040109	G	T,C	Common mild CAH alleles
+Q318X	p.Q318X (c.952C>T)	chr6	32040418	C	T	Nonsense (alternate vs Q319X numbering)
+Q319X	p.Q319X (c.955C>T)	chr6	32040421	C	T	Nonsense (NM_000500.9)
+R357W	p.R357W (c.1069C>T)	chr6	32040535	C	T	Alternate numbering p.R356W

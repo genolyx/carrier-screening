@@ -13,6 +13,10 @@ process GENERATE_SUMMARY_REPORT {
     path snapshots
     path bed_file
     path hba_paralog_tsvs
+    path cyp21_paralog_tsvs
+    path cyp21_hotspot_pileup_tsvs
+    path cyp21a2_hotspots
+    path annotated_vcfs
 
     output:
     path "*_summary_report.txt", emit: summary
@@ -49,6 +53,7 @@ import json
 import gzip
 import re
 import ast
+import csv
 
 SMN_CNV_TOTAL_ASSUMED = ${params.smn_cnv_est_total_copies}
 
@@ -396,6 +401,81 @@ def parse_hba_paralog_trace(files):
         results[sample] = lines
     return results
 
+def parse_cyp21_paralog_trace(files):
+    # Lines from cyp21_paralog_pileup.py: CYP21_PARALOG_CN_RATIO / CYP21_PARALOG_CN_TRACE (comment lines in TSV).
+    results = {}
+    for f in files:
+        sample = os.path.basename(f).replace('_cyp21_paralog.tsv', '')
+        lines = []
+        try:
+            with open(f) as fh:
+                for line in fh:
+                    if line.startswith('# ') and 'CYP21_PARALOG' in line:
+                        lines.append(line[2:].strip())
+        except Exception:
+            pass
+        results[sample] = lines
+    return results
+
+def parse_cyp21_hotspot_pileup_rows(files):
+    # Rows from cyp21_hotspot_pileup.py (*_cyp21_hotspot_pileup.tsv).
+    results = {}
+    for f in files:
+        sample = os.path.basename(f).replace('_cyp21_hotspot_pileup.tsv', '')
+        rows = []
+        try:
+            with open(f, newline='') as fh:
+                rdr = csv.DictReader(fh, delimiter='\\t')
+                for row in rdr:
+                    rid = (row.get('id') or '').strip()
+                    if rid and not rid.startswith('#'):
+                        rows.append(row)
+        except Exception:
+            pass
+        results[sample] = rows
+    return results
+
+def cyp21_hotspot_consistency_flags(vcf_rows, pileup_rows):
+    flags = []
+    if not vcf_rows or not pileup_rows:
+        return flags
+    by_id = {r.get('id'): r for r in pileup_rows if r.get('id')}
+    for vr in vcf_rows:
+        pid = vr.get('id')
+        pr = by_id.get(pid)
+        if not pr:
+            continue
+        try:
+            af = float(pr['alt_frac'])
+        except (ValueError, TypeError, KeyError):
+            continue
+        try:
+            dp = int(pr['depth'])
+        except (ValueError, TypeError, KeyError):
+            dp = 0
+        st = vr.get('status')
+        if st == 'not_detected' and af >= 0.15:
+            flags.append(
+                f"{pid}: VCF not detected but BAM alt_frac={af:.3f} (review: pseudogene/mapping or missed SNV)"
+            )
+        if st in ('het', 'hom', 'carrier') and dp >= 15 and af < 0.08:
+            flags.append(
+                f"{pid}: VCF {st} but BAM alt_frac={af:.3f} depth={dp} (review)"
+            )
+    return flags
+
+def read_cyp21_fallback_text(files):
+    # Full lines from *_cyp21a2_fallback.txt for the detailed report (depth screening).
+    results = {}
+    for f in files:
+        sample = os.path.basename(f).replace('_cyp21a2_fallback.txt', '')
+        try:
+            with open(f) as fh:
+                results[sample] = [ln.rstrip() for ln in fh.readlines()]
+        except Exception:
+            results[sample] = []
+    return results
+
 def parse_eh(files):
     results = {}
     for f in files:
@@ -595,12 +675,124 @@ def parse_intron_verify(files):
              results[sample] = []
     return results
 
+def load_cyp21_hotspots(tsv_path):
+    rows = []
+    try:
+        with open(tsv_path) as fh:
+            for line in fh:
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                parts = line.split('\\t')
+                if len(parts) < 6 or parts[0] == 'id':
+                    continue
+                hid, label, chrom, pos_s, ref, alts = parts[0], parts[1], parts[2], parts[3], parts[4], parts[5]
+                note = parts[6] if len(parts) > 6 else ''
+                rows.append({
+                    'id': hid,
+                    'label': label,
+                    'chrom': chrom,
+                    'pos': int(pos_s),
+                    'ref': ref,
+                    'alts': [a.strip() for a in alts.split(',') if a.strip()],
+                    'note': note,
+                })
+    except Exception as e:
+        print(f"Warning: could not load CYP21 hotspot TSV {tsv_path}: {e}")
+    return rows
+
+def sample_from_variant_vcf(path):
+    base = os.path.basename(path)
+    m = re.match(r'^(.+)_(gatk|deepvariant|strelka2)_(annotated|filtered)\\.vcf\\.gz$', base)
+    return m.group(1) if m else None
+
+def scan_cyp21_hotspots(vcf_path, hotspots):
+    try:
+        import pysam
+    except ImportError:
+        return [{'id': h['id'], 'label': h['label'], 'status': 'error', 'detail': 'pysam not available'} for h in hotspots]
+    rows_out = []
+    try:
+        vf = pysam.VariantFile(vcf_path)
+    except Exception as e:
+        return [{'id': h['id'], 'label': h['label'], 'status': 'error', 'detail': str(e)} for h in hotspots]
+    samples = list(vf.header.samples)
+    if not samples:
+        vf.close()
+        return [{'id': h['id'], 'label': h['label'], 'status': 'error', 'detail': 'no samples in VCF'} for h in hotspots]
+    sample_name = samples[0]
+    for h in hotspots:
+        matched_rec = None
+        mm_detail = None
+        try:
+            for rec in vf.fetch(h['chrom'], h['pos'] - 1, h['pos']):
+                if rec.pos != h['pos']:
+                    continue
+                if rec.ref != h['ref']:
+                    mm_detail = f"VCF REF {rec.ref} vs expected {h['ref']}"
+                    continue
+                matched_rec = rec
+                break
+        except ValueError as e:
+            rows_out.append({'id': h['id'], 'label': h['label'], 'status': 'error', 'detail': f'fetch: {e}'})
+            continue
+        if matched_rec is None and mm_detail:
+            rows_out.append({'id': h['id'], 'label': h['label'], 'status': 'ref_mismatch', 'detail': mm_detail})
+            continue
+        if matched_rec is None:
+            rows_out.append({'id': h['id'], 'label': h['label'], 'status': 'not_detected', 'detail': 'no variant at position'})
+            continue
+        rec = matched_rec
+        alt_indices = []
+        for i, a in enumerate(rec.alts or []):
+            if a is not None and str(a) in h['alts']:
+                alt_indices.append(i)
+        if not alt_indices:
+            alt_str = ','.join(str(a) for a in (rec.alts or []) if a)
+            rows_out.append({'id': h['id'], 'label': h['label'], 'status': 'other_alt', 'detail': f'ALT={alt_str}'})
+            continue
+        want_gt = set(i + 1 for i in alt_indices)
+        gt = rec.samples[sample_name].get('GT')
+        if gt is None:
+            rows_out.append({'id': h['id'], 'label': h['label'], 'status': 'no_gt', 'detail': 'missing GT'})
+            continue
+        alt_count = sum(1 for a in gt if a is not None and a in want_gt)
+        ploidy = sum(1 for a in gt if a is not None)
+        if alt_count == 0:
+            rows_out.append({'id': h['id'], 'label': h['label'], 'status': 'ref', 'detail': 'GT hom-ref for listed ALT(s)'})
+            continue
+        if ploidy >= 2:
+            if alt_count == 1:
+                status = 'het'
+            elif alt_count == 2:
+                status = 'hom'
+            else:
+                status = 'unknown'
+        else:
+            status = 'carrier' if alt_count else 'ref'
+        rows_out.append({'id': h['id'], 'label': h['label'], 'status': status, 'detail': 'called'})
+    vf.close()
+    return rows_out
+
+def hotspot_compact_summary(sample_rows, defs_ok):
+    if not defs_ok:
+        return 'no_hotspot_table'
+    if sample_rows is None:
+        return 'no_vcf'
+    hits = []
+    for r in sample_rows:
+        if r['status'] in ('het', 'hom', 'carrier', 'unknown'):
+            hits.append(f"{r['id']}:{r['status']}")
+    return ','.join(hits) if hits else 'none'
+
 # Main
 manta_files = glob.glob("*_manta.vcf.gz")
 gcnv_files = glob.glob("*_cnv.vcf.gz")
 para_files = glob.glob("*_paraphase.json")
 hba_files = glob.glob("*_hba_fallback.txt")
 hba_paralog_files = glob.glob("*_hba_paralog.tsv")
+cyp21_paralog_files = glob.glob("*_cyp21_paralog.tsv")
+cyp21_hotspot_pileup_files = glob.glob("*_cyp21_hotspot_pileup.tsv")
 cyp_files = glob.glob("*_cyp21a2_fallback.txt")
 eh_files = glob.glob("*_eh.vcf")
 sma_files = glob.glob("*_smaca.txt")
@@ -611,13 +803,27 @@ g_res = parse_gcnv(gcnv_files)
 p_res = parse_paraphase(para_files)
 h_res = parse_fallback(hba_files, "hba")
 hba_paralog_lines = parse_hba_paralog_trace(hba_paralog_files)
+cyp21_paralog_lines = parse_cyp21_paralog_trace(cyp21_paralog_files)
+hotspot_pileup_by_sample = parse_cyp21_hotspot_pileup_rows(cyp21_hotspot_pileup_files)
+cyp_fallback_raw = read_cyp21_fallback_text(cyp_files)
 c_res = parse_fallback(cyp_files, "cyp21a2")
 e_res = parse_eh(eh_files)
 s_res, smaca_extras = parse_smaca(sma_files)
 v_res = parse_intron_verify(ver_files)
 
+hotspot_defs = load_cyp21_hotspots("${cyp21a2_hotspots}")
+variant_vcfs = sorted(
+    glob.glob("*_annotated.vcf.gz") + glob.glob("*_filtered.vcf.gz"),
+    key=os.path.basename,
+)
+hotspot_by_sample = {}
+for _vf in variant_vcfs:
+    _sid = sample_from_variant_vcf(_vf)
+    if _sid and hotspot_defs:
+        hotspot_by_sample[_sid] = scan_cyp21_hotspots(_vf, hotspot_defs)
+
 all_samples = sorted(
-    set(m_res.keys()) | set(g_res.keys()) | set(p_res.keys()) | set(hba_paralog_lines.keys())
+    set(m_res.keys()) | set(g_res.keys()) | set(p_res.keys()) | set(hba_paralog_lines.keys()) | set(cyp21_paralog_lines.keys()) | set(hotspot_by_sample.keys()) | set(hotspot_pileup_by_sample.keys())
 )
 
 # Generate Individual Reports
@@ -645,7 +851,8 @@ for s in all_samples:
         warns = v_res.get(s, [])
         warn_str = " | ".join(warns) if warns else "PASS"
 
-        line = f"{s}\\t{p_res.get(s, '-')}\\t{s_res.get(s, '-')}\\t{e_res.get(s, '-')}\\t{h_res.get(s, '-')}\\t{c_res.get(s, '-')}\\t{sv_str}\\t{warn_str}"
+        cyp_full = f"{c_res.get(s, '-')}|NM000500_hotspots={hotspot_compact_summary(hotspot_by_sample.get(s), bool(hotspot_defs))}"
+        line = f"{s}\\t{p_res.get(s, '-')}\\t{s_res.get(s, '-')}\\t{e_res.get(s, '-')}\\t{h_res.get(s, '-')}\\t{cyp_full}\\t{sv_str}\\t{warn_str}"
         out.write(line + "\\n")
 
     # 2. Individual Detailed Report
@@ -681,9 +888,49 @@ for s in all_samples:
         out.write("\\n")
         
         out.write("CYP21A2 ANALYSIS (CAH - Dosage):\\n")
-        cyp_val = c_res.get(s, 'No Data')
-        cyp_fmt = cyp_val.replace('|', '\\n  ')
-        out.write(f"  {cyp_fmt}\\n\\n")
+        _cyp_raw = cyp_fallback_raw.get(s, [])
+        if _cyp_raw:
+            out.write("  Depth screening (CYP21A2 interval vs chr6 backbone):\\n")
+            for _ln in _cyp_raw:
+                if _ln.strip():
+                    out.write(f"  {_ln}\\n")
+        else:
+            cyp_val = c_res.get(s, 'No Data')
+            cyp_fmt = cyp_val.replace('|', '\\n  ')
+            out.write("  Depth screening (summary only; raw fallback file not found):\\n")
+            out.write(f"  {cyp_fmt}\\n")
+        out.write("  NM_000500 hotspot screening (variant caller VCF at chr6 positions):\\n")
+        if not hotspot_defs:
+            out.write("  (Hotspot table missing or empty.)\\n")
+        elif s not in hotspot_by_sample:
+            out.write("  (No per-sample variant VCF staged — requires backbone BED and variant calling.)\\n")
+        else:
+            for _row in hotspot_by_sample[s]:
+                out.write(f"  [{_row['id']}] {_row['label']}: {_row['status']} — {_row['detail']}\\n")
+        out.write("  BAM pileup (same 7 NM_000500 sites, chr6 reference; cross-check SNV calls):\\n")
+        _hp = hotspot_pileup_by_sample.get(s)
+        if not _hp:
+            out.write("  (No *_cyp21_hotspot_pileup.tsv — see results/fallback when CYP21_HOTSPOT_PILEUP runs.)\\n")
+        else:
+            for row in _hp:
+                out.write(
+                    f"  [{row.get('id', '')}] {row.get('chrom', '')}:{row.get('pos', '')} "
+                    f"depth={row.get('depth', '')} ref_frac={row.get('ref_frac', '')} alt_frac={row.get('alt_frac', '')} "
+                    f"expected_alts={row.get('expected_alts', '')} | {row.get('pileup', '')}\\n"
+                )
+            _flags = cyp21_hotspot_consistency_flags(hotspot_by_sample.get(s) or [], _hp)
+            if _flags:
+                out.write("  VCF vs BAM cross-check:\\n")
+                for _fl in _flags:
+                    out.write(f"    {_fl}\\n")
+        out.write("  Paralog pileup (CYP21A2 vs CYP21A1P, secondary confirmation):\\n")
+        _cpl = cyp21_paralog_lines.get(s, [])
+        if _cpl:
+            for _cl in _cpl:
+                out.write(f"  {_cl}\\n")
+        else:
+            out.write("  (No paralog pileup block — see results/fallback/*_cyp21_paralog.tsv when CYP21_PARALOG_PILEUP runs.)\\n")
+        out.write("\\n")
 
         out.write("EXPANSION HUNTER (Fragile X / FMR1):\\n")
         out.write(f"  {e_res.get(s, 'No Data')}\\n\\n")
