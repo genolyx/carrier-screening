@@ -27,11 +27,9 @@ process GENERATE_VISUAL_EVIDENCE {
     if [ ! -f "${bam}.bai" ]; then ln -s ${bai} ${bam}.bai; fi
     if [ ! -f "${ref_fasta}.fai" ]; then ln -s ${ref_fai} ${ref_fasta}.fai; fi
 
-    printf "chr5\\t70920000\\t71000000\\tSMA_Locus\\n" > regions.bed
-    printf "chr5\\t70951600\\t70952200\\tSMA_Exon7_Context\\n" >> regions.bed
-    printf "chr5\\t70951920\\t70951970\\tSMA_c840_SNP_Zoom\\n" >> regions.bed
+    # First region = default IGV panel: c.840 discriminative base (C vs T on unified + hg38 tracks)
+    printf "chr5\\t70951920\\t70951970\\tSMA_c840_SNP_Zoom\\n" > regions.bed
     printf "chr5\\t70952050\\t70952100\\tSMA_Silent_Carrier_SNP\\n" >> regions.bed
-    printf "chr5\\t70049000\\t70080000\\tSMN2_Locus\\n" >> regions.bed
     printf "chr16\\t173300\\t173800\\tHb_Constant_Spring\\n" >> regions.bed
     printf "chr16\\t160000\\t190000\\tAlpha_Thal_Structural\\n" >> regions.bed
     printf "chr1\\t155232540\\t155240432\\tGBA_Locus\\n" >> regions.bed

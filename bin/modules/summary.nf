@@ -47,6 +47,51 @@ import glob
 import json
 import gzip
 import re
+import ast
+
+SMN_CNV_TOTAL_ASSUMED = ${params.smn_cnv_est_total_copies}
+
+def silent_carrier_dup_g27134_allele_counts(raw):
+    # g.27134T>G DUP_MARK cell (silent carrier dup context); not c.840 exon 7.
+    if not raw or raw == '-':
+        return None
+    m = re.search(r'\\[.*\\]', raw, re.DOTALL)
+    if not m:
+        return None
+    try:
+        arr = ast.literal_eval(m.group(0))
+    except Exception:
+        return None
+    if not isinstance(arr, list) or len(arr) != 4:
+        return None
+    if not all(isinstance(r, list) for r in arr):
+        return None
+    A = int(sum(arr[0]))
+    C = int(sum(arr[1]))
+    G = int(sum(arr[2]))
+    T = int(sum(arr[3]))
+    tg = T + G
+    ct = C + T
+    t_frac_tg = f"{T / tg:.3f}" if tg > 0 else "?"
+    c_frac_ct = f"{C / ct:.3f}" if ct > 0 else "?"
+    return {
+        'A': A, 'C': C, 'G': G, 'T': T,
+        'T_frac_TG': t_frac_tg,
+        'C_frac_CT': c_frac_ct,
+    }
+
+def silent_carrier_summary_label(raw_val, acgt):
+    # g.27134T>G: True if SMAca G read count > 0; else legacy "G" in text before [[...]].
+    if raw_val == '-':
+        return "False"
+    raw_head = raw_val.split('[', 1)[0]
+    if acgt is not None:
+        g = acgt['G']
+        call = "True" if g > 0 else "False"
+        return f"{call} (g27134_G={g}; Raw: {raw_head})"
+    if raw_head.strip().startswith('G'):
+        return f"True (g27134_G=NA; Raw: {raw_head})"
+    return f"False (g27134_G=NA; Raw: {raw_head})"
 
 # --- DMD Target Mapping ---
 def load_dmd_targets(bed_path):
@@ -362,16 +407,85 @@ def parse_eh(files):
             results[sample] = "Error"
     return results
 
+def filter_smaca_for_detailed_report(line):
+    # Detailed report: keep CN/SMAca + HGVS norm (G→C, A→T); drop verbose per-base ACGT.
+    if not line or line == "No Data" or "|" not in line:
+        return line
+    parts = [p.strip() for p in line.split("|") if p.strip()]
+    has_norm = any("_hgvs_norm_" in p for p in parts)
+    keep = []
+    for p in parts:
+        if "=" not in p:
+            continue
+        k = p.split("=", 1)[0]
+        if k in (
+            "SMN1_cov_frac",
+            "C_Ratio",
+            "Cov(1,2)",
+            "SMN1_CN_est",
+            "SMN2_CN_est",
+            "CNV_est_total_assumed",
+            "SilentCarrier",
+            "c840_pileup_mode",
+            "c840_SMN1_depth_frac_of_pair",
+        ):
+            keep.append(p)
+            continue
+        if k.startswith("exon7_") or k.startswith("silent_g27134_"):
+            keep.append(p)
+            continue
+        if k.startswith("SMAca_cov_frac_minus_c840"):
+            keep.append(p)
+            continue
+        if k.startswith("c840_SMN1_hgvs_norm_") or k.startswith("c840_SMN2_hgvs_norm_"):
+            keep.append(p)
+            continue
+        if k.startswith("c840_merged_hgvs_norm_"):
+            keep.append(p)
+            continue
+        if has_norm:
+            continue
+        if k in (
+            "c840_SMN1_hgvs_C",
+            "c840_SMN1_hgvs_T",
+            "c840_SMN1_hgvs_depth",
+            "c840_SMN2_hgvs_C",
+            "c840_SMN2_hgvs_T",
+            "c840_SMN2_hgvs_depth",
+        ):
+            keep.append(p)
+            continue
+        if k in (
+            "c840_merged_hgvs_C",
+            "c840_merged_hgvs_T",
+            "c840_merged_hgvs_depth",
+            "c840_merged_hgvs_C_frac_CplusT_coding",
+        ):
+            keep.append(p)
+    return "|".join(keep) if keep else line
+
 def parse_smaca(files):
     results = {}
+    extras = {}
     for f in files:
         sample = os.path.basename(f).replace('_smaca.txt', '')
+        extras[sample] = []
         try:
              with open(f) as txt:
-                 lines = txt.readlines()
+                 content = txt.read()
+             lines = content.splitlines()
+             # Prefer stable block appended by SMACA_RUN (daemon-friendly)
+             for i, line in enumerate(lines):
+                 if line.strip() == '##DARK_GENE_PIPELINE_SUMMARY' and i + 1 < len(lines):
+                     results[sample] = lines[i + 1].strip()
+                     j = i + 2
+                     while j < len(lines) and lines[j].strip().startswith('##C840'):
+                         extras[sample].append(lines[j].strip())
+                         j += 1
+                     break
+             else:
                  header = []
                  data = []
-                 
                  for line in lines:
                      line = line.strip()
                      if line.startswith('# id') or line.startswith('id'):
@@ -381,41 +495,27 @@ def parse_smaca(files):
                              data = [d.strip() for d in line.split('|')]
                          elif ',' in line:
                              data = [d.strip() for d in line.split(',')]
-                
                  if header and data:
                      min_len = min(len(header), len(data))
                      row = {header[i]: data[i] for i in range(min_len)}
-                     
                      s1 = row.get('avg_cov_SMN1', '?')
                      s2 = row.get('avg_cov_SMN2', '?')
-                     
-                     # Silent Carrier Variant Parsing
                      variant_col = 'g.27134T>G'
-                     silent_carrier = "False"
                      raw_val = row.get(variant_col, '-')
-                     if raw_val != '-':
-                         if 'G' in raw_val.split('[')[0]: 
-                             silent_carrier = "True"
-                         else:
-                             silent_carrier = "False"
-                         silent_carrier += f" (Raw: {raw_val.split('[')[0]})"
-
-                     # Rounded CN
-                     s1_cn = "?"
-                     s2_cn = "?"
-                     try: 
+                     acgt = silent_carrier_dup_g27134_allele_counts(raw_val) if raw_val != '-' else None
+                     silent_carrier = silent_carrier_summary_label(raw_val, acgt)
+                     s1_val = None
+                     s2_val = None
+                     try:
                         s1_val = float(s1)
-                        s1_cn = round(s1_val)
                         s1 = f"{s1_val:.2f}"
-                     except: pass
-                     
-                     try: 
+                     except Exception:
+                        pass
+                     try:
                         s2_val = float(s2)
-                        s2_cn = round(s2_val)
                         s2 = f"{s2_val:.2f}"
-                     except: pass
-                     
-                     # Calculate C>T Ratio (SMN1 / Total)
+                     except Exception:
+                        pass
                      c_ratio = "?"
                      try:
                          if isinstance(s1_val, float) and isinstance(s2_val, float):
@@ -424,16 +524,42 @@ def parse_smaca(files):
                                  c_ratio = f"{s1_val / total_cov:.3f}"
                              else:
                                  c_ratio = "0.00"
-                     except: pass
-
-                     results[sample] = f"SMN1_CN={s1_cn}|SMN2_CN={s2_cn}|C_Ratio={c_ratio}|Cov(1,2)={s1},{s2}|SilentCarrier={silent_carrier}"
+                     except Exception:
+                        pass
+                     cn_est1 = "?"
+                     cn_est2 = "?"
+                     try:
+                         if isinstance(s1_val, float) and isinstance(s2_val, float):
+                             tot = s1_val + s2_val
+                             if tot > 0:
+                                 sm1_frac = s1_val / tot
+                                 cn_est1 = int(round(SMN_CNV_TOTAL_ASSUMED * sm1_frac))
+                                 cn_est2 = SMN_CNV_TOTAL_ASSUMED - cn_est1
+                     except Exception:
+                         pass
+                     pi_b = row.get('Pi_b', '?')
+                     cov_s1b = row.get('cov_SMN1_b', '?')
+                     cov_s2b = row.get('cov_SMN2_b', '?')
+                     exon7 = f"|exon7_c840_Pi_b={pi_b}|cov_SMN1_b={cov_s1b}|cov_SMN2_b={cov_s2b}"
+                     silent_allelic = ""
+                     if acgt:
+                         silent_allelic = (
+                             f"|silent_g27134_A={acgt['A']}|silent_g27134_C={acgt['C']}|silent_g27134_G={acgt['G']}|silent_g27134_T={acgt['T']}"
+                             f"|silent_g27134_T_frac_TplusG={acgt['T_frac_TG']}|silent_g27134_C_frac_CplusT={acgt['C_frac_CT']}"
+                         )
+                     else:
+                         silent_allelic = "|silent_g27134_alleles=NA"
+                     results[sample] = (
+                         f"SMN1_cov_frac={c_ratio}|C_Ratio={c_ratio}"
+                         f"|Cov(1,2)={s1},{s2}|SMN1_CN_est={cn_est1}|SMN2_CN_est={cn_est2}|CNV_est_total_assumed={SMN_CNV_TOTAL_ASSUMED}"
+                         f"|SilentCarrier={silent_carrier}{exon7}{silent_allelic}"
+                         f"|c840_pileup=NA|c840_SMN1_depth_frac_of_pair=NA|SMAca_cov_frac_minus_c840_depth_frac=NA"
+                     )
                  else:
                      results[sample] = "Parsing Failed"
         except Exception as e:
             results[sample] = f"Error: {e}"
-    return results
-
-    return results
+    return results, extras
 
 def parse_intron_verify(files):
     results = {}
@@ -469,7 +595,7 @@ p_res = parse_paraphase(para_files)
 h_res = parse_fallback(hba_files, "hba")
 c_res = parse_fallback(cyp_files, "cyp21a2")
 e_res = parse_eh(eh_files)
-s_res = parse_smaca(sma_files)
+s_res, smaca_extras = parse_smaca(sma_files)
 v_res = parse_intron_verify(ver_files)
 
 all_samples = sorted(set(m_res.keys()) | set(g_res.keys()) | set(p_res.keys()))
@@ -518,10 +644,13 @@ for s in all_samples:
         out.write("PARAPHASE RESULTS (SMN1/2, GBA - Breakdown):\\n")
         out.write(f"  {p_res.get(s, 'No Data')}\\n\\n")
 
-        out.write("SMAca CHECK (Silent Carrier + Coverage):\\n")
-        smaca_val = s_res.get(s, 'No Data')
+        out.write("SMAca CHECK (exon7/c840: Pi_b cov_SMN*_b; silent carrier: g.27134 SilentCarrier):\\n")
+        smaca_val = filter_smaca_for_detailed_report(s_res.get(s, 'No Data'))
         smaca_fmt = smaca_val.replace('|', '\\n  ')
-        out.write(f"  {smaca_fmt}\\n\\n")
+        out.write(f"  {smaca_fmt}\\n")
+        for _ex in smaca_extras.get(s, []):
+            out.write(f"  {_ex}\\n")
+        out.write("\\n")
 
         out.write("HBA ANALYSIS (Alpha Thalassemia - Dosage):\\n")
         hba_val = h_res.get(s, 'No Data')

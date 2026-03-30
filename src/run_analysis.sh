@@ -12,6 +12,8 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
+pipeline_timestamp() { date '+%Y-%m-%d %H:%M:%S %z'; }
+
 # 사용법 출력
 usage() {
     cat << EOF
@@ -301,6 +303,7 @@ fi
 
 # 분석 시작
 echo -e "${YELLOW}Starting analysis...${NC}"
+echo "  Started at: $(pipeline_timestamp)"
 echo ""
 
 # Docker 컨테이너 실행 (태스크는 NXF_DOCKER_TASK_USER, 종료 시 docker chown)
@@ -324,7 +327,12 @@ if DOCKER_SOCK_GID="$(getent group docker 2>/dev/null | cut -d: -f3)" && [ -n "$
     DOCKER_GROUP_ARGS=(--group-add "${DOCKER_SOCK_GID}")
 fi
 
-docker run --rm -t \
+# docker ps NAME: order id (-w) + sample (sanitize for Docker: [a-zA-Z0-9][a-zA-Z0-9_.-]*)
+NF_DOCKER_NAME_RAW="carrier-${WORK_DIR}-${SAMPLE_NAME}"
+NF_DOCKER_NAME="$(printf '%s' "$NF_DOCKER_NAME_RAW" | sed -e 's/[^a-zA-Z0-9_.-]/-/g' -e 's/^[-_.]*//' -e 's/^$/carrier-unknown/')"
+NF_DOCKER_NAME="${NF_DOCKER_NAME:0:200}"
+
+docker run --rm -t --name "$NF_DOCKER_NAME" \
     -u "${CHOWN_SPEC}" \
     "${DOCKER_GROUP_ARGS[@]}" \
     -e HOME=/tmp \
@@ -347,6 +355,7 @@ docker run --rm -t \
     -e NXF_CACHE_DIR="${DATA_DIR}/analysis/${WORK_DIR}/${SAMPLE_NAME}/.nextflow" \
     -e NXF_DATA_DIR="${DATA_DIR}" \
     -e NXF_DOCKER_TASK_USER="${CHOWN_SPEC}" \
+    -e HOST_WORK_DIR="${HOST_WORK_DIR}" \
     carrier-screening:latest \
     bash -c "
         cd ${DATA_DIR}/analysis/${WORK_DIR}/${SAMPLE_NAME} && \
@@ -373,7 +382,7 @@ docker run --rm -t \
             --output_dir ${DATA_DIR}/output/${WORK_DIR}/${SAMPLE_NAME} \
             --sample_name ${SAMPLE_NAME} \
             ${CLEANUP} \
-            -work-dir ${HOST_WORK_DIR} \
+            -work-dir \"\$HOST_WORK_DIR\" \
             -with-report ${DATA_DIR}/log/${WORK_DIR}/${SAMPLE_NAME}/report.html \
             -with-trace ${DATA_DIR}/log/${WORK_DIR}/${SAMPLE_NAME}/trace.txt \
             -with-timeline ${DATA_DIR}/log/${WORK_DIR}/${SAMPLE_NAME}/timeline.html \
@@ -400,10 +409,12 @@ if [ $EXIT_CODE -eq 0 ]; then
     else
         echo -e "${YELLOW}⚠ Skipped analysis.completed (no write permission); pipeline succeeded.${NC}"
     fi
+    echo "  Finished at: $(pipeline_timestamp)"
 
     exit 0
 else
     echo -e "${RED}❌ Analysis failed with exit code: ${EXIT_CODE}${NC}"
+    echo "  Stopped at: $(pipeline_timestamp)"
     echo ""
     repair_order_tree_permissions || true
     echo "Check logs:"

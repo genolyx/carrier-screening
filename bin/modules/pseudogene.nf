@@ -144,23 +144,60 @@ except Exception as e:
     """
 }
 
+process SMN_UNIFIED_C840_BAM {
+    tag "$sample_id"
+    label 'smn_unified_c840'
+    publishDir "${params.outdir}/pseudogene/smn_unified_c840", mode: 'copy'
+
+    input:
+    tuple val(sample_id), path(bam), path(bai), path(ref_fasta), path(ref_fai)
+
+    output:
+    tuple val(sample_id), path("${sample_id}_smn_unified_c840.bam"), path("${sample_id}_smn_unified_c840.bam.bai"), emit: unified
+
+    script:
+    """
+    export TMPDIR=\$PWD
+    if [ ! -f "${bam}.bai" ]; then
+        ln -s ${bai} ${bam}.bai
+    fi
+    if [ ! -f "${ref_fasta}.fai" ]; then
+        ln -s ${ref_fai} ${ref_fasta}.fai
+    fi
+
+    SMN_START=${params.smn_unified_region_start}
+    SMN_END=${params.smn_unified_region_end}
+    samtools faidx ${ref_fasta} chr5:\${SMN_START}-\${SMN_END} > smn_ref_wide.fa 2>/dev/null || \\
+        samtools faidx ${ref_fasta} 5:\${SMN_START}-\${SMN_END} > smn_ref_wide.fa
+
+    sed -i '1s/.*/>chr5_local/' smn_ref_wide.fa
+    bwa-mem2 index smn_ref_wide.fa
+
+    samtools view -b ${bam} chr5:70920000-70960000 chr5:70020000-70080000 > smn_raw.bam 2>/dev/null || \\
+        samtools view -b ${bam} 5:70920000-70960000 5:70020000-70080000 > smn_raw.bam
+
+    samtools fastq smn_raw.bam > smn_reads.fq
+    bwa-mem2 mem -t ${task.cpus} smn_ref_wide.fa smn_reads.fq | samtools sort -o ${sample_id}_smn_unified_c840.bam -
+    samtools index ${sample_id}_smn_unified_c840.bam
+    """
+}
+
 process SMACA_RUN {
     tag "$sample_id"
     label 'smaca'
     publishDir "${params.outdir}/pseudogene/smaca", mode: 'copy'
 
     input:
-    tuple val(sample_id), path(bam), path(bai)
-    // SMAca might need reference or other configs depending on version
+    // stageAs: fixed name in work dir (path inputs must come from a channel for reliable Docker staging)
+    tuple val(sample_id), path(bam), path(bai), path(summarize_py, stageAs: 'smaca_append_summary.py'), path(unified_bam), path(unified_bai)
 
     output:
     tuple val(sample_id), path("${sample_id}_smaca.txt"), emit: txt
 
     script:
     """
-    # Biocontainers smaca 이미지에 바이너리 포함; micromamba+wget은 슬림 이미지에 없어 실패함
+    # Biocontainers smaca 이미지: smaca + python3 (pysam for pileup); see nextflow.config withLabel: smaca
     export TMPDIR=\$PWD
-    export HOME=\$PWD
 
     if [ ! -f "${bam}.bai" ]; then
         ln -s ${bai} ${bam}.bai
@@ -168,8 +205,18 @@ process SMACA_RUN {
 
     smaca \\
         --reference hg38 \\
+        --ncpus ${task.cpus} \\
         --output ${sample_id}_smaca.txt \\
         ${bam}
+
+    python3 ${summarize_py} \\
+        ${sample_id} \\
+        ${bam} \\
+        ${params.smn_cnv_est_total_copies} \\
+        ${params.smn_c840_sm1_grch38_1bp} \\
+        ${params.smn_c840_sm2_grch38_1bp} \\
+        ${unified_bam} \\
+        ${params.smn_unified_c840_pileup_1bp}
     """
 }
 

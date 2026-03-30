@@ -31,7 +31,7 @@ include { GCNV_CLARITY; PREPROCESS_INTERVALS; COLLECT_READ_COUNTS;
           POSTPROCESS_GCNV } from './modules/cnv'
 
 // Pseudogene
-include { PARAPHASE_RUN; SMACA_RUN; PARAPHASE_RESCUE } from './modules/pseudogene'
+include { PARAPHASE_RUN; SMN_UNIFIED_C840_BAM; SMACA_RUN; PARAPHASE_RESCUE } from './modules/pseudogene'
 
 // Other analyses
 include { GENERATE_SUMMARY_REPORT } from './modules/summary'
@@ -227,8 +227,15 @@ workflow {
     // -------------------------------------------------------
     // 3. Track 2: Pseudogene Resolution
     // -------------------------------------------------------
+    // Channel.fromPath ensures the helper script is staged into each task work dir (Docker smaca image).
+    smaca_append_ch = Channel.fromPath("${projectDir}/modules/smaca_append_summary.py", checkIfExists: true)
     PARAPHASE_RUN(bam_ch, ref_fasta, ref_fai)
-    SMACA_RUN(bam_ch)
+    // Re-align SMN1+SMN2 region reads to one SMN1 haplotype slice; pileup c.840 in smaca_append_summary.py
+    smn_unified_in = bam_ch.combine(Channel.value(ref_fasta)).combine(Channel.value(ref_fai))
+    SMN_UNIFIED_C840_BAM(smn_unified_in)
+    smaca_joined = bam_ch.combine(smaca_append_ch).map { sid, bam, bai, py -> tuple(sid, bam, bai, py) }
+        .join(SMN_UNIFIED_C840_BAM.out.unified.map { sid, ubam, ubai -> tuple(sid, ubam, ubai) }, by: 0)
+    SMACA_RUN(smaca_joined)
     PARAPHASE_RESCUE(bam_ch, ref_fasta, file(params.dark_genes_plus_bed))
 
     // -------------------------------------------------------
