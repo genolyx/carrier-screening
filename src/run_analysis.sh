@@ -174,6 +174,7 @@ repair_order_tree_permissions() {
 
     if command -v docker >/dev/null 2>&1 && id -nG | grep -qw docker && docker info &>/dev/null; then
         if docker run --rm --platform linux/amd64 \
+            --name "carrier-perm-${WORK_DIR}" \
             -e WORK_DIR="$WORK_DIR" \
             -e CHOWN_SPEC="$CHOWN_SPEC" \
             -v "${DATA_DIR}/analysis:/fa" \
@@ -228,6 +229,7 @@ ensure_sample_output_dirs() {
     fi
     echo -e "${YELLOW}Creating output dirs via docker (host mkdir failed, e.g. parent dir owned by root)...${NC}"
     docker run --rm --platform linux/amd64 \
+        --name "carrier-mkdir-${WORK_DIR}" \
         -e WORK_DIR="$WORK_DIR" \
         -e SAMPLE_NAME="$SAMPLE_NAME" \
         -e CHOWN_SPEC="$CHOWN_SPEC" \

@@ -276,7 +276,12 @@ class AnalysisMonitor:
         upload_map = {
             'summary': ['*_summary_report.txt', '*_detailed_report.txt'],
             'snapshots': ['*_visual_report.html'],
-            'vcf': ['*_filtered.vcf.gz', '*_filtered.vcf.gz.tbi'],
+            # *_annotated.vcf.gz : VEP CSQ 포함 (gene/HGVSc/effect 표시용) — 현재 파이프라인 출력 파일명
+            # *_filtered.vcf.gz  : annotation 전 필터링 VCF (CSQ 없음, fallback용으로 유지)
+            'vcf': [
+                '*_annotated.vcf.gz', '*_annotated.vcf.gz.tbi',
+                '*_filtered.vcf.gz', '*_filtered.vcf.gz.tbi',
+            ],
             'bam': ['*.md.bam', '*.md.bam.bai'],
             'cnv': ['*_cnv.vcf.gz'],
             'sv': ['*_manta.vcf.gz'],
