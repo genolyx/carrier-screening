@@ -12,6 +12,7 @@ process EXPANSION_HUNTER {
     output:
     tuple val(sample_id), path("${sample_id}_eh.json"), path("${sample_id}_eh.vcf"), emit: results
     tuple val(sample_id), path("*.svg"), emit: images, optional: true
+    tuple val(sample_id), path("${sample_id}_eh_realigned.sorted.bam"), path("${sample_id}_eh_realigned.sorted.bam.bai"), emit: eh_realigned
 
     script:
     """
@@ -88,15 +89,15 @@ process EXPANSION_HUNTER {
         --sex \$sex \\
         --output-prefix ${sample_id}_eh
 
+    # EH v4 realigned BAM is unsorted; sort+index for REViewer and IGV visual evidence
+    \$ST sort ${sample_id}_eh_realigned.bam -o ${sample_id}_eh_realigned.sorted.bam
+    \$ST index ${sample_id}_eh_realigned.sorted.bam
+
     # 2. Run REViewer (Visualization) for FMR1
     # Check if FMR1 was called in the VCF to avoid errors if missing
     if grep -q "FMR1" ${sample_id}_eh.vcf; then
         echo "Generating REViewer visualization for FMR1..."
-        
-        # EH v4 output is sometimes unsorted. Sort it before indexing for REViewer.
-        \$ST sort ${sample_id}_eh_realigned.bam -o ${sample_id}_eh_realigned.sorted.bam
-        \$ST index ${sample_id}_eh_realigned.sorted.bam
-        
+
         ./REViewer \\
             --reads ${sample_id}_eh_realigned.sorted.bam \\
             --vcf ${sample_id}_eh.vcf \\

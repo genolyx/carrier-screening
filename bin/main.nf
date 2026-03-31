@@ -332,7 +332,11 @@ workflow {
     // -------------------------------------------------------
     // 1b. Visual Evidence (IGV Snapshots)
     // -------------------------------------------------------
+    eh_json_ch = EXPANSION_HUNTER.out.results.map { sid, json, vcf -> tuple(sid, json) }
     viz_input    = bam_ch.join(annotated_vcf_ch, remainder: true)
+        .join(EXPANSION_HUNTER.out.eh_realigned, by: 0)
+        .join(eh_json_ch, by: 0)
+        .join(SMN_UNIFIED_C840_BAM.out.unified, by: 0)
     eh_images_all = EXPANSION_HUNTER.out.images.map { it[1] }.collect()
 
     GENERATE_VISUAL_EVIDENCE(
@@ -342,9 +346,7 @@ workflow {
         ref_fai,
         PREPARE_VIZ_RESOURCES.out.env,
         PREPARE_VIZ_RESOURCES.out.gtf,
-        PREPARE_VIZ_RESOURCES.out.gtf_index,
-        PREPARE_VIZ_RESOURCES.out.smn_ref,
-        PREPARE_VIZ_RESOURCES.out.smn_index
+        PREPARE_VIZ_RESOURCES.out.gtf_index
     )
 
     // -------------------------------------------------------

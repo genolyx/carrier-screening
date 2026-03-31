@@ -4,15 +4,13 @@ process GENERATE_VISUAL_EVIDENCE {
     publishDir "${params.outdir}/snapshots", mode: 'copy'
 
     input:
-    tuple val(sample_id), path(bam), path(bai), path(vcf), path(vcf_idx)
+    tuple val(sample_id), path(bam), path(bai), path(vcf), path(vcf_idx), path(eh_realigned_bam), path(eh_realigned_bai), path(eh_json), path(smn_unified_bam), path(smn_unified_bai)
     path eh_images
     path ref_fasta
     path ref_fai
     path viz_env
     path gtf
     path gtf_idx
-    path smn_ref
-    path smn_indices
     
     output:
     path "*_visual_report.html", emit: snapshots
@@ -26,44 +24,84 @@ process GENERATE_VISUAL_EVIDENCE {
     # Symlink Indices
     if [ ! -f "${bam}.bai" ]; then ln -s ${bai} ${bam}.bai; fi
     if [ ! -f "${ref_fasta}.fai" ]; then ln -s ${ref_fai} ${ref_fasta}.fai; fi
+    # Real files (not symlinks) so igv-reports embeds them; symlinks often yield an empty EH track in the HTML bundle
+    cp -f ${eh_realigned_bam} FMR1_eh_realigned.bam
+    cp -f ${eh_realigned_bai} FMR1_eh_realigned.bam.bai
 
-    # First region = default IGV panel: c.840 discriminative base (C vs T on unified + hg38 tracks)
-    printf "chr5\\t70951920\\t70951970\\tSMA_c840_SNP_Zoom\\n" > regions.bed
-    printf "chr5\\t70952050\\t70952100\\tSMA_Silent_Carrier_SNP\\n" >> regions.bed
+    # SMA regions — coords align with nextflow.config (smn_c840_*_grch38_1bp); default IGV = SMN1 c.840 exon 7
+    printf "chr5\\t${params.smn_c840_sm1_grch38_1bp - 120}\\t${params.smn_c840_sm1_grch38_1bp + 120}\\tSMA_SMN1_c840_exon7\\n" > regions.bed
+    printf "chr5\\t${params.smn_c840_sm2_grch38_1bp - 120}\\t${params.smn_c840_sm2_grch38_1bp + 120}\\tSMA_SMN2_c840_exon7\\n" >> regions.bed
+    printf "chr5\\t70925000\\t70954000\\tSMA_SMN1_gene_region\\n" >> regions.bed
+    printf "chr5\\t70073000\\t70082000\\tSMA_SMN2_gene_region\\n" >> regions.bed
     printf "chr16\\t173300\\t173800\\tHb_Constant_Spring\\n" >> regions.bed
     printf "chr16\\t160000\\t190000\\tAlpha_Thal_Structural\\n" >> regions.bed
     printf "chr1\\t155232540\\t155240432\\tGBA_Locus\\n" >> regions.bed
     printf "chr6\\t32038000\\t32045000\\tCYP21A2_Locus\\n" >> regions.bed
-    printf "chrX\\t147911919\\t147912110\\tFragileX_FMR1\\n" >> regions.bed
+    printf "chrX\\t147911600\\t147912450\\tFragileX_FMR1\\n" >> regions.bed
 
-    # --- SMN Combined Pileup Strategy ---
-    # Resources (smn_ref.fa and indices) provided by PREPARE_VIZ_RESOURCES
-    SMN_START=70920000
-    
-    # 2. Extract Reads from BOTH SMN1 and SMN2 loci
-    # Widened windows to include g.27134 (Silent Carrier SNP)
-    samtools view -b ${bam} "chr5:70920000-70960000" "chr5:70020000-70080000" > smn_raw_reads.bam
-    samtools fastq smn_raw_reads.bam > smn_reads.fq
-    
-    # 3. Re-align to SMN1 ref
-    bwa mem -t 2 ${smn_ref} smn_reads.fq | samtools view -b - > smn_realigned_local.bam
-    
-    # 4. Shift Coordinates Back to hg38
-    python3 -c "
+    printf '##gff-version 3\\n' > sma_landmarks.gff3
+    printf 'chr5\\tcarrier_screening\\tregion\\t%d\\t%d\\t.\\t+\\t.\\tID=SMN1_c840;Name=NM_000344_c840\\n' ${params.smn_c840_sm1_grch38_1bp} ${params.smn_c840_sm1_grch38_1bp} >> sma_landmarks.gff3
+    printf 'chr5\\tcarrier_screening\\tregion\\t%d\\t%d\\t.\\t+\\t.\\tID=SMN2_c840;Name=NM_017411_c840\\n' ${params.smn_c840_sm2_grch38_1bp} ${params.smn_c840_sm2_grch38_1bp} >> sma_landmarks.gff3
+
+    # SMN unified BAM (same bwa-mem2 + mini-ref as SMACA_RUN) → project chr5_local onto hg38 chr5 for IGV
+    export SMN_START=${params.smn_unified_region_start}
+    export PRIMARY_BAM="${bam}"
+    export UNIFIED_BAM="${smn_unified_bam}"
+    python3 << 'PYSMN'
+import os
 import pysam
-infile = pysam.AlignmentFile('smn_realigned_local.bam', 'rb')
-outfile = pysam.AlignmentFile('smn_combined_hg38.bam', 'wb', template=infile)
-offset = \$SMN_START - 1 
 
-for read in infile:
-    if not read.is_unmapped:
-        read.reference_start += offset
-        if not read.mate_is_unmapped and read.next_reference_name == 'chr5':
-             read.next_reference_start += offset
-    outfile.write(read)
-infile.close()
-outfile.close()
-"
+# Mini-ref slice starts at SMN_START (1-based g.); SAM POS is 1-based; BAM ref_start is 0-based.
+off = int(os.environ["SMN_START"]) - 1
+primary = os.environ["PRIMARY_BAM"]
+unified = os.environ["UNIFIED_BAM"]
+
+in_pri = pysam.AlignmentFile(primary, "rb")
+out = pysam.AlignmentFile("smn_combined_hg38.bam", "wb", template=in_pri)
+if out.get_tid("chr5") < 0:
+    raise SystemExit("chr5 missing from primary BAM header")
+
+in_u = pysam.AlignmentFile(unified, "rb")
+hdr_u = in_u.header
+
+
+def read_to_sam_line(r):
+    # pysam: older builds use to_string(header); newer use to_string() only
+    try:
+        return r.to_string(hdr_u)
+    except TypeError:
+        return r.to_string()
+
+
+for read in in_u:
+    if read.is_unmapped:
+        continue
+    # Cannot mutate reference_id on reads from in_u — pysam validates against unified header (chr5_local only).
+    # Round-trip through SAM with hg38 RNAME/POS, then parse with primary header.
+    s = read_to_sam_line(read)
+    parts = s.split("\t")
+    if len(parts) < 11:
+        continue
+    if parts[2] == "chr5_local":
+        parts[2] = "chr5"
+    parts[3] = str(int(parts[3]) + off)
+    if parts[6] == "chr5_local":
+        parts[6] = "="
+    if parts[6] == "=":
+        parts[7] = str(int(parts[7]) + off)
+    line = "\t".join(parts)
+    try:
+        lifted = pysam.AlignedSegment.fromstring(line, out.header)
+    except AttributeError:
+        lifted = pysam.AlignedSegment.from_string(line, out.header)
+    except ValueError as e:
+        raise SystemExit(f"SMN lift failed for read {parts[0]}: {e}") from e
+    out.write(lifted)
+
+in_u.close()
+out.close()
+in_pri.close()
+PYSMN
     samtools sort -o smn_combined_final.bam smn_combined_hg38.bam
     samtools index smn_combined_final.bam
 
@@ -87,12 +125,12 @@ with open('fx_image.gff3', 'w') as f:
     import urllib.parse
     
     # JavaScript to show the hidden div and scroll to it
-    js_action = "document.getElementById('fx_graph_container').style.display='block'; document.getElementById('fx_graph_container').scrollIntoView({behavior: 'smooth'});"
+    js_action = "document.getElementById('fmr1_eh_panel').scrollIntoView({behavior: 'smooth'});"
     
-    btn_html = f'<button onclick="{js_action}" style="background:orange; color:white; font-weight:bold; padding:5px; cursor:pointer;">SHOW GRAPH AT BOTTOM</button>'
+    btn_html = f'<button onclick="{js_action}" style="background:orange; color:white; font-weight:bold; padding:5px; cursor:pointer;">JUMP TO FMR1 PANEL</button>'
     encoded_note = urllib.parse.quote(btn_html)
     
-    f.write(f'chrX\\tREViewer\\tTrigger\\t147911919\\t147912110\\t.\\t.\\t.\\tID=FX1;Name=Click to View;Note={encoded_note}\\n')
+    f.write(f'chrX\\tREViewer\\tTrigger\\t147911600\\t147912450\\t.\\t.\\t.\\tID=FX1;Name=Click to View;Note={encoded_note}\\n')
 EOF
         python3 create_fx_track.py
         
@@ -124,14 +162,42 @@ tracks.append({
     "visibilityWindow": -1
 })
 
-# 2. SMN Combined Pileup (Unified Alignment)
+# 1b. SMN — same unified mini-ref alignment as SMAca (bwa-mem2 → chr5_local), lifted to hg38
 tracks.append({
     "type": "alignment",
     "format": "bam",
     "url": "smn_combined_final.bam",
     "indexURL": "smn_combined_final.bam.bai",
-    "name": "SMN1+SMN2 Pileup (Unified)",
-    "displayMode": "EXPANDED", 
+    "name": "SMN (unified ref, SMAca-matched)",
+    "displayMode": "EXPANDED",
+    "colorBy": "base",
+    "height": 550,
+    "minMappingQuality": 0,
+    "samplingDepth": 1000000,
+    "showSoftClips": True,
+    "visibilityWindow": -1
+})
+
+# 1c. SMA c.840 landmarks (SMN1 / SMN2 NM positions)
+tracks.append({
+    "type": "annotation",
+    "format": "gff3",
+    "url": "sma_landmarks.gff3",
+    "name": "SMA landmarks (c.840)",
+    "displayMode": "EXPANDED",
+    "color": "darkgreen",
+    "height": 60,
+    "visibilityWindow": -1
+})
+
+# 1d. FMR1 — ExpansionHunter repeat-aware realignment
+tracks.append({
+    "type": "alignment",
+    "format": "bam",
+    "url": "FMR1_eh_realigned.bam",
+    "indexURL": "FMR1_eh_realigned.bam.bai",
+    "name": "FMR1 (ExpansionHunter realigned)",
+    "displayMode": "EXPANDED",
     "colorBy": "base",
     "height": 500,
     "minMappingQuality": 0,
@@ -207,7 +273,7 @@ EOF
         --fasta ${ref_fasta} \\
         --genome hg38 \\
         --track-config track_config.json \\
-        --flanking 1000 \\
+        --flanking 1500 \\
         --output temp_report.html \\
         --title "Visual Evidence: ${sample_id}"
 
@@ -222,30 +288,146 @@ html = html.replace('</body>', alpha_box + chr(10) + '</body>')
 open('temp_report.html', 'w').write(html)
 "
 
-    # --- 2. Inject Hidden SVG at Bottom ---
-    if [ -n "\$eh_img" ]; then
-        echo "Injecting hidden SVG container..."
-        python3 -c "
-html_content = open('temp_report.html').read()
-svg_content = open('\$eh_img').read()
+    # --- Fragile X: EH CGG summary + REViewer graph (visible; primary view for repeat count) ---
+    export EH_JSON_PATH="${eh_json}"
+    export EH_SVG_PATH="\${eh_img:-}"
+    python3 << 'PYFMR1'
+import html as html_mod
+import json
+import os
+import re
+from pathlib import Path
 
-# Injection: Hidden Div by default.
-injection = f'''
-<div id='fx_graph_container' style='display:none; margin-top: 50px; padding: 20px; border-top: 4px solid orange; background:#fff;'>
-    <h2>Fragile X (FMR1) Graph <button onclick=\"this.parentElement.style.display='none'\" style='float:right; color:red;'>Close</button></h2>
-    <div style='overflow-x: auto;'>
-        {svg_content}
-    </div>
-</div>
-</body>
-'''
-new_html = html_content.replace('</body>', injection)
-with open('${sample_id}_visual_report.html', 'w') as f:
-    f.write(new_html)
-"
-    else
-        mv temp_report.html ${sample_id}_visual_report.html
-    fi
+eh_path = Path(os.environ["EH_JSON_PATH"])
+svg_path = (os.environ.get("EH_SVG_PATH") or "").strip()
+html_path = Path("temp_report.html")
+text = html_path.read_text(encoding="utf-8", errors="replace")
+
+
+def format_genotype(gt):
+    if gt is None:
+        return "—"
+    if isinstance(gt, (list, tuple)):
+        return "/".join(str(x) for x in gt)
+    if isinstance(gt, dict):
+        return json.dumps(gt)
+    return str(gt)
+
+
+def extract_rows(locus):
+    rows = []
+    for v in locus.get("Variants") or []:
+        if v.get("VariantType") != "Repeat":
+            continue
+        rows.append(
+            {
+                "unit": v.get("RepeatUnit") or "",
+                "genotype": v.get("Genotype"),
+                "ci": v.get("GenotypeConfidenceInterval"),
+                "ref": v.get("ReferenceRegion"),
+            }
+        )
+    return rows
+
+
+def fmr1_block(data):
+    lr = data.get("LocusResults") or {}
+    for key, locus in lr.items():
+        lid = str(locus.get("LocusId") or key)
+        if "FMR1" not in lid and "FMR1" not in str(key):
+            continue
+        rows = extract_rows(locus)
+        return {
+            "locus_id": lid,
+            "coverage": locus.get("Coverage"),
+            "allele_count": locus.get("AlleleCount"),
+            "rows": rows,
+        }
+    for key, locus in lr.items():
+        rows = extract_rows(locus)
+        if not rows:
+            continue
+        if any((r["unit"] or "").upper() == "CGG" for r in rows):
+            lid = str(locus.get("LocusId") or key)
+            return {
+                "locus_id": lid,
+                "coverage": locus.get("Coverage"),
+                "allele_count": locus.get("AlleleCount"),
+                "rows": rows,
+            }
+    return None
+
+summary_inner = ""
+if eh_path.exists():
+    try:
+        with open(eh_path, encoding="utf-8") as f:
+            data = json.load(f)
+        blk = fmr1_block(data)
+        if blk and blk["rows"]:
+            parts = [
+                "<table style='border-collapse:collapse;margin-top:8px;font-size:14px;'>",
+                "<tr><th style='text-align:left;padding:4px 12px 4px 0;border-bottom:1px solid #ccc;'>Motif</th>"
+                "<th style='text-align:left;padding:4px 12px;border-bottom:1px solid #ccc;'>CGG repeats (genotype)</th>"
+                "<th style='text-align:left;padding:4px 0;border-bottom:1px solid #ccc;'>95% CI</th></tr>",
+            ]
+            for r in blk["rows"]:
+                gt_s = format_genotype(r["genotype"])
+                ci = r["ci"]
+                ci_s = html_mod.escape(str(ci)) if ci is not None else "—"
+                parts.append(
+                    "<tr><td style='padding:6px 12px 6px 0;'>"
+                    + html_mod.escape(str(r["unit"]))
+                    + "</td><td style='padding:6px 12px;font-weight:600;'>"
+                    + html_mod.escape(gt_s)
+                    + "</td><td style='padding:6px 0;'>"
+                    + ci_s
+                    + "</td></tr>"
+                )
+            parts.append("</table>")
+            cov = blk["coverage"]
+            extra = ""
+            if cov is not None:
+                extra += f"<p style='margin:8px 0 0 0;color:#4a5568;font-size:13px;'>Locus coverage (EH estimate): {html_mod.escape(str(cov))}</p>"
+            summary_inner = "".join(parts) + extra
+        elif blk:
+            summary_inner = "<p style='margin:0;color:#744210;'>FMR1 found in JSON but no repeat variant rows.</p>"
+        else:
+            summary_inner = "<p style='margin:0;color:#744210;'>No FMR1 entry under <code>LocusResults</code> in ExpansionHunter JSON.</p>"
+    except Exception as e:
+        summary_inner = f"<p style='margin:0;color:#c53030;'>Could not parse ExpansionHunter JSON: {html_mod.escape(str(e))}</p>"
+else:
+    summary_inner = "<p style='margin:0;color:#744210;'>ExpansionHunter JSON not found.</p>"
+
+svg_block = ""
+if svg_path and Path(svg_path).exists():
+    svg_block = (
+        "<h3 style='margin:20px 0 10px 0;font-size:16px;'>REViewer (read graph)</h3>"
+        "<div style='overflow-x:auto;border:1px solid #e2e8f0;border-radius:6px;padding:8px;background:#fafafa;'>"
+        + Path(svg_path).read_text(encoding="utf-8", errors="replace")
+        + "</div>"
+    )
+else:
+    svg_block = "<p style='margin:12px 0 0 0;color:#4a5568;font-size:13px;'>REViewer SVG was not generated (e.g. FMR1 absent from EH VCF). Use the table above and the IGV panel <code>FragileX_FMR1</code> for the primary BAM.</p>"
+
+# Groovy wraps this script in double-triple-quotes; Python panel string must use f''' not f-double-triple-quote
+panel = f'''<div id='fmr1_eh_panel' style='margin:0 0 24px 0;padding:20px;border:2px solid #dd6b20;border-radius:10px;background:linear-gradient(180deg,#fffaf0 0%,#ffffff 40%);max-width:1100px;'>
+<h2 style='margin:0 0 8px 0;color:#9c4221;font-size:20px;'>Fragile X — FMR1 (CGG)</h2>
+<p style='margin:0 0 12px 0;line-height:1.5;color:#2d3748;font-size:14px;'>
+<b>ExpansionHunter</b> estimates <b>CGG repeat copy number</b> below (not inferred from the primary exome BAM pileup). The read graph shows how EH/REViewer represent spanning and in-repeat reads.
+</p>
+{summary_inner}
+{svg_block}
+</div>'''
+
+m = re.search(r"(<body[^>]*>)", text, re.I)
+if m:
+    text = text[: m.end()] + panel + text[m.end() :]
+else:
+    text = panel + text
+html_path.write_text(text, encoding="utf-8")
+PYFMR1
+
+    mv temp_report.html ${sample_id}_visual_report.html
 
     # Verify output
     if [ ! -f "${sample_id}_visual_report.html" ]; then

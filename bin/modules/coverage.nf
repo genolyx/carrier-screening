@@ -78,22 +78,41 @@ process DEPTH_ANALYSIS {
         awk -v name="\$name" '{sum+=\$3; if(\$3>0) covered++; if(\$3>max) max=\$3; count++} END {if (count>0) print name "\t" sum/count "\t" max "\t" (covered/count)*100; else print name "\t0\t0\t0"}' >> ${sample_id}_intron_depth.txt
     done < ${dark_genes_bed}
 
-    # Specific Loci Checks (Alpha / SMA)
-    echo "\\n[Specific Loci Verification]" >> ${sample_id}_intron_depth.txt
-    
-    ALPHA_MED=\$(\$ST depth -r "chr16:164000-183000" -a ${bam} | cut -f3 | sort -n | awk '{a[i++]=\$1;} END {if (i==0) print 0; else print a[int(i/2)];}')
-    SMA_MED=\$(\$ST depth -r "chr5:70920000-71000000" -a ${bam} | cut -f3 | sort -n | awk '{a[i++]=\$1;} END {if (i==0) print 0; else print a[int(i/2)];}')
-    
-    echo "Alpha-Cluster Median Depth: \$ALPHA_MED" >> ${sample_id}_intron_depth.txt
-    echo "SMA Locus Median Depth: \$SMA_MED" >> ${sample_id}_intron_depth.txt
-    
-    # Check Threshold (15x)
-    FAILED=0
-    if [ "\$ALPHA_MED" -lt 15 ]; then FAILED=1; fi
-    if [ "\$SMA_MED" -lt 15 ]; then FAILED=1; fi
-    
-    if [ "\$FAILED" -eq 1 ]; then
-        echo "WARNING: Median depth below 15x in Alpha-Cluster (\$ALPHA_MED) or SMA (\$SMA_MED)." >> ${sample_id}_intron_depth.txt
+    # Same windows as HBA1_HBA2_Region + SMN1_SMN2_Region rows above (dark_genes_plus.bed) — mean depth, not a separate hardcoded locus/median.
+    echo "\\n[Dark-gene SMA / HBA depth QC]" >> ${sample_id}_intron_depth.txt
+    ALPHA_MEAN=\$(awk -F'\\t' '\$1=="HBA1_HBA2_Region" {print \$2+0}' ${sample_id}_intron_depth.txt)
+    SMA_MEAN=\$(awk -F'\\t' '\$1=="SMN1_SMN2_Region" {print \$2+0}' ${sample_id}_intron_depth.txt)
+    echo "HBA1_HBA2_Region mean depth (alpha): \$ALPHA_MEAN" >> ${sample_id}_intron_depth.txt
+    echo "SMN1_SMN2_Region mean depth (SMA/SMN): \$SMA_MEAN" >> ${sample_id}_intron_depth.txt
+
+    WARN_MIN=${params.depth_warning_min_dark}
+    INC_SMN=${params.depth_warning_include_smn}
+    if [ "\$INC_SMN" != "true" ]; then
+        echo "Note: depth QC threshold uses HBA only (depth_warning_include_smn=false); SMN/SMA rely on Paraphase/SMAca." >> ${sample_id}_intron_depth.txt
+    fi
+    if [ "\$WARN_MIN" = "0" ] || [ "\$WARN_MIN" = "0.0" ]; then
+        echo "Note: depth QC warning disabled (depth_warning_min_dark=0)." >> ${sample_id}_intron_depth.txt
+    else
+        if [ "\$INC_SMN" = "true" ]; then
+            TRIGGER=\$(awk -v a="\$ALPHA_MEAN" -v s="\$SMA_MEAN" -v t="\$WARN_MIN" 'BEGIN{print ((a+0 < t+0) || (s+0 < t+0)) ? 1 : 0}')
+        else
+            TRIGGER=\$(awk -v a="\$ALPHA_MEAN" -v t="\$WARN_MIN" 'BEGIN{print (a+0 < t+0) ? 1 : 0}')
+        fi
+        if [ "\$TRIGGER" = "1" ]; then
+            if [ "\$INC_SMN" = "true" ]; then
+                FAIL_WHY=\$(awk -v a="\$ALPHA_MEAN" -v s="\$SMA_MEAN" -v t="\$WARN_MIN" 'BEGIN{
+                    fa=(a+0<t); fs=(s+0<t);
+                    if (fa && fs) print "Both regions fail.";
+                    else if (fa) print "HBA1_HBA2_Region fails only (SMN1_SMN2_Region is OK).";
+                    else if (fs) print "SMN1_SMN2_Region fails only (HBA1_HBA2_Region is OK).";
+                    else print "";
+                }')
+                echo "WARNING: Dark-gene mean depth below \$WARN_MIN x — \$FAIL_WHY Values: HBA1_HBA2_Region=\$ALPHA_MEAN, SMN1_SMN2_Region=\$SMA_MEAN (same rows as Region table; not mosdepth panel-wide mean)." >> ${sample_id}_intron_depth.txt
+                echo "WARNING: SMN window often looks much lower than exome-wide depth (SMN1/SMN2 homology); use Paraphase/SMAca for SMA context." >> ${sample_id}_intron_depth.txt
+            else
+                echo "WARNING: HBA1_HBA2_Region mean depth below \$WARN_MIN x (value=\$ALPHA_MEAN). SMN depth not used for this gate (depth_warning_include_smn=false)." >> ${sample_id}_intron_depth.txt
+            fi
+        fi
     fi
     """
 }

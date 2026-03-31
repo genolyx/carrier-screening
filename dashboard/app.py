@@ -5,7 +5,7 @@ import time
 import shutil
 import psutil
 from datetime import datetime
-from flask import Flask, render_template, request, jsonify, send_from_directory, Response
+from flask import Flask, render_template, request, jsonify, send_from_directory, Response, redirect
 
 app = Flask(__name__)
 
@@ -490,22 +490,13 @@ def download_result(filepath):
 
 @app.route('/view_report/<work_dir>/<sample_name>')
 def view_report(work_dir, sample_name):
-    """View final HTML report in browser."""
+    """Legacy URL: send users to the raw final_report.html (same as Results → view HTML). No extra wrapper page."""
     report_path = os.path.join(OUTPUT_BASE, work_dir, sample_name, 'final_report.html')
-    
     if not os.path.exists(report_path):
-        return render_template('no_report.html', 
-                             work_dir=work_dir, 
-                             sample_name=sample_name), 404
-    
-    # Read and serve the HTML report
-    with open(report_path, 'r', encoding='utf-8') as f:
-        report_content = f.read()
-    
-    return render_template('report_viewer.html', 
-                         work_dir=work_dir,
-                         sample_name=sample_name,
-                         report_content=report_content)
+        return render_template('no_report.html',
+                                work_dir=work_dir,
+                                sample_name=sample_name), 404
+    return redirect(f'/download/{work_dir}/{sample_name}/final_report.html')
 
 @app.route('/api/report/<work_dir>/<sample_name>')
 def get_report_data(work_dir, sample_name):
