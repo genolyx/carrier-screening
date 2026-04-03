@@ -168,6 +168,77 @@ fi
 DATA_DIR=$(realpath "$DATA_DIR")
 REF_DIR=$(realpath "$REF_DIR")
 
+# 패널 이름 → BED 파일 경로 해석
+# 우선순위: --backbone-bed 직접 지정 > data/bed/<name>/ 디렉터리 > 내장 패널 매핑
+resolve_panel_bed() {
+    local bed_dir="${DATA_DIR}/data/bed"
+
+    # --list-panels: 사용 가능한 패널 목록 출력
+    if [ -n "$LIST_PANELS" ]; then
+        echo "Built-in panels:"
+        echo "  twist-exome2  (default)"
+        echo ""
+        echo "Custom panels (${bed_dir}/<panel-name>/):"
+        local found=0
+        for d in "${bed_dir}"/*/; do
+            [ -d "$d" ] && echo "  $(basename "$d")" && found=1
+        done
+        [ "$found" -eq 0 ] && echo "  (none)"
+        echo ""
+        echo "To add a new panel:"
+        echo "  mkdir -p ${bed_dir}/<panel-name>"
+        echo "  cp targets.bed        ${bed_dir}/<panel-name>/targets.bed"
+        echo "  cp targets.bed.gz     ${bed_dir}/<panel-name>/targets.bed.gz"
+        echo "  cp targets.bed.gz.tbi ${bed_dir}/<panel-name>/targets.bed.gz.tbi"
+        exit 0
+    fi
+
+    # --backbone-bed 직접 지정: .gz / .tbi 자동 유도
+    if [ -n "$BACKBONE_BED" ]; then
+        [ -z "$BACKBONE_BED_GZ" ]  && BACKBONE_BED_GZ="${BACKBONE_BED}.gz"
+        [ -z "$BACKBONE_BED_TBI" ] && BACKBONE_BED_TBI="${BACKBONE_BED}.gz.tbi"
+
+    # data/bed/<name>/ 디렉터리가 있으면 사용 (신규 패널 자동 인식)
+    elif [ -d "${bed_dir}/${PANEL}" ]; then
+        BACKBONE_BED="${bed_dir}/${PANEL}/targets.bed"
+        BACKBONE_BED_GZ="${bed_dir}/${PANEL}/targets.bed.gz"
+        BACKBONE_BED_TBI="${bed_dir}/${PANEL}/targets.bed.gz.tbi"
+
+    # 내장 패널 매핑 (기존 파일 구조와의 하위 호환)
+    elif [ "$PANEL" = "twist-exome2" ]; then
+        local prefix="Twist_Exome2.0_plus_Comprehensive_Exome_Spikein_targets_covered_annotated_hg38"
+        BACKBONE_BED="${bed_dir}/${prefix}.bed"
+        BACKBONE_BED_GZ="${bed_dir}/${prefix}.bed.gz"
+        BACKBONE_BED_TBI="${bed_dir}/${prefix}.bed.gz.tbi"
+
+    else
+        echo -e "${RED}Error: Unknown panel '${PANEL}'${NC}"
+        echo ""
+        echo "Available panels:"
+        echo "  twist-exome2  (built-in)"
+        for d in "${bed_dir}"/*/; do
+            [ -d "$d" ] && echo "  $(basename "$d")"
+        done
+        echo ""
+        echo "To add panel '${PANEL}':"
+        echo "  mkdir -p ${bed_dir}/${PANEL}"
+        echo "  cp targets.bed        ${bed_dir}/${PANEL}/targets.bed"
+        echo "  cp targets.bed.gz     ${bed_dir}/${PANEL}/targets.bed.gz"
+        echo "  cp targets.bed.gz.tbi ${bed_dir}/${PANEL}/targets.bed.gz.tbi"
+        exit 1
+    fi
+
+    # BED 파일 존재 확인
+    local missing=0
+    for f in "$BACKBONE_BED" "$BACKBONE_BED_GZ" "$BACKBONE_BED_TBI"; do
+        if [ ! -f "$f" ]; then
+            echo -e "${RED}Error: Panel file not found: ${f}${NC}"
+            missing=1
+        fi
+    done
+    if [ "$missing" -eq 1 ]; then exit 1; fi
+}
+
 # 패널 BED 경로 해석 (DATA_DIR 절대경로 확정 후 호출)
 resolve_panel_bed
 
@@ -243,77 +314,6 @@ repair_order_tree_permissions() {
         find "$t" -type d -exec chmod g+s {} + 2>/dev/null || true
     done
     [ "$quiet" = quiet ] || echo -e "${YELLOW}  Order trees: collaborative chmod only (for chown use docker group or passwordless sudo).${NC}"
-}
-
-# 패널 이름 → BED 파일 경로 해석
-# 우선순위: --backbone-bed 직접 지정 > data/bed/<name>/ 디렉터리 > 내장 패널 매핑
-resolve_panel_bed() {
-    local bed_dir="${DATA_DIR}/data/bed"
-
-    # --list-panels: 사용 가능한 패널 목록 출력
-    if [ -n "$LIST_PANELS" ]; then
-        echo "Built-in panels:"
-        echo "  twist-exome2  (default)"
-        echo ""
-        echo "Custom panels (${bed_dir}/<panel-name>/):"
-        local found=0
-        for d in "${bed_dir}"/*/; do
-            [ -d "$d" ] && echo "  $(basename "$d")" && found=1
-        done
-        [ "$found" -eq 0 ] && echo "  (none)"
-        echo ""
-        echo "To add a new panel:"
-        echo "  mkdir -p ${bed_dir}/<panel-name>"
-        echo "  cp targets.bed        ${bed_dir}/<panel-name>/targets.bed"
-        echo "  cp targets.bed.gz     ${bed_dir}/<panel-name>/targets.bed.gz"
-        echo "  cp targets.bed.gz.tbi ${bed_dir}/<panel-name>/targets.bed.gz.tbi"
-        exit 0
-    fi
-
-    # --backbone-bed 직접 지정: .gz / .tbi 자동 유도
-    if [ -n "$BACKBONE_BED" ]; then
-        [ -z "$BACKBONE_BED_GZ" ]  && BACKBONE_BED_GZ="${BACKBONE_BED}.gz"
-        [ -z "$BACKBONE_BED_TBI" ] && BACKBONE_BED_TBI="${BACKBONE_BED}.gz.tbi"
-
-    # data/bed/<name>/ 디렉터리가 있으면 사용 (신규 패널 자동 인식)
-    elif [ -d "${bed_dir}/${PANEL}" ]; then
-        BACKBONE_BED="${bed_dir}/${PANEL}/targets.bed"
-        BACKBONE_BED_GZ="${bed_dir}/${PANEL}/targets.bed.gz"
-        BACKBONE_BED_TBI="${bed_dir}/${PANEL}/targets.bed.gz.tbi"
-
-    # 내장 패널 매핑 (기존 파일 구조와의 하위 호환)
-    elif [ "$PANEL" = "twist-exome2" ]; then
-        local prefix="Twist_Exome2.0_plus_Comprehensive_Exome_Spikein_targets_covered_annotated_hg38"
-        BACKBONE_BED="${bed_dir}/${prefix}.bed"
-        BACKBONE_BED_GZ="${bed_dir}/${prefix}.bed.gz"
-        BACKBONE_BED_TBI="${bed_dir}/${prefix}.bed.gz.tbi"
-
-    else
-        echo -e "${RED}Error: Unknown panel '${PANEL}'${NC}"
-        echo ""
-        echo "Available panels:"
-        echo "  twist-exome2  (built-in)"
-        for d in "${bed_dir}"/*/; do
-            [ -d "$d" ] && echo "  $(basename "$d")"
-        done
-        echo ""
-        echo "To add panel '${PANEL}':"
-        echo "  mkdir -p ${bed_dir}/${PANEL}"
-        echo "  cp targets.bed        ${bed_dir}/${PANEL}/targets.bed"
-        echo "  cp targets.bed.gz     ${bed_dir}/${PANEL}/targets.bed.gz"
-        echo "  cp targets.bed.gz.tbi ${bed_dir}/${PANEL}/targets.bed.gz.tbi"
-        exit 1
-    fi
-
-    # BED 파일 존재 확인
-    local missing=0
-    for f in "$BACKBONE_BED" "$BACKBONE_BED_GZ" "$BACKBONE_BED_TBI"; do
-        if [ ! -f "$f" ]; then
-            echo -e "${RED}Error: Panel file not found: ${f}${NC}"
-            missing=1
-        fi
-    done
-    [ "$missing" -eq 1 ] && exit 1
 }
 
 # 출력 디렉토리 생성. 과거 Docker가 analysis/<work>/ 를 root로 만들면 일반 사용자 mkdir 불가 → docker로 보정
